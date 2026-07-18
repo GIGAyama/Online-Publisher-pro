@@ -2,9 +2,13 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#f97316">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="出版社Pro">
   <title>オンライン出版社Pro</title>
-  
+
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
   <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700&family=Zen+Old+Mincho:wght@400;700&family=Shippori+Mincho:wght@400;700&display=swap" rel="stylesheet">
@@ -43,6 +47,17 @@
       
       @keyframes toastFadeIn { 0% { opacity: 0; transform: translate(-50%, 20px); } 100% { opacity: 1; transform: translate(-50%, 0); } }
       .animate-toast { animation: toastFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+      html, body, #root { height: 100%; }
+      .app-shell { height: 100vh; }
+      @supports (height: 100dvh) { .app-shell { height: 100dvh; } }
+      @media print { .app-shell { height: auto; overflow: visible; } }
+
+      button, [role="button"] { touch-action: manipulation; }
+      /* iOS Safariのフォーカス時自動ズームを防ぐため、モバイルではフォーム部品を16px以上にする */
+      @media (max-width: 640px) {
+        input[type="text"], input[type="password"], input[type="number"], input[type="date"], input[type="search"], select, textarea { font-size: 16px; }
+      }
     `;
 
     const Rb = ({ t, r }) => (
@@ -378,7 +393,7 @@
 
       return (
         <div ref={wrapperRef} className="absolute inset-0 bg-slate-100/50 rounded-2xl overflow-hidden border border-slate-200">
-          <div ref={containerRef} className="w-full h-full overflow-auto relative hide-scrollbar p-8" style={{ direction: 'rtl' }}>
+          <div ref={containerRef} className="w-full h-full overflow-auto relative hide-scrollbar p-3 sm:p-8" style={{ direction: 'rtl' }}>
             <div style={{ direction: 'ltr' }} className="flex-shrink-0 w-max h-max">
               <div style={{ width: dims.w > 0 ? dims.w * scale : '100%', height: dims.h > 0 ? dims.h * scale : '100%', minHeight: '100%', position: 'relative' }} className="transition-all duration-300 ease-out">
                 <div ref={contentRef} style={{ transform: `scale(${scale})`, transformOrigin: 'top right', position: 'absolute', top: 0, right: 0 }} className="shadow-2xl rounded-sm bg-white inline-block">
@@ -422,11 +437,12 @@
         }
 
         return (
-            <div className={`${cellSize} flex items-center justify-center border-b border-green-700/30 last:border-b-green-700/70 text-slate-800 vertical-rl leading-none relative transition-colors ${bgClass}`} 
-                 onMouseDown={(e) => { if (idx !== null && onMouseDown) onMouseDown(idx, e); }} 
+            <div className={`${cellSize} flex items-center justify-center border-b border-green-700/30 last:border-b-green-700/70 text-slate-800 vertical-rl leading-none relative transition-colors ${bgClass}`}
+                 data-idx={idx !== null ? idx : undefined}
+                 onMouseDown={(e) => { if (idx !== null && onMouseDown) onMouseDown(idx, e); }}
                  onMouseEnter={() => { if (idx !== null && onMouseEnter) onMouseEnter(idx); }} 
                  onClick={(e) => { if (showCorrection && onClickCorrection) { e.stopPropagation(); onClickCorrection(); } }}>
-                <span style={{ fontSize: 'min(14pt, 2vw)' }}>{charObj.char}</span>
+                <span style={{ fontSize: '14pt' }}>{charObj.char}</span>
                 {afterElement}
                 {isLineEnd && overflowText && (
                     <div className="absolute top-[100%] left-1/2 -translate-x-1/2 whitespace-nowrap vertical-rl text-[0.7em] mt-[0.1em] pointer-events-none">{overflowText}</div>
@@ -443,9 +459,82 @@
       const isHigh = charsPerLine === 20;
       const cellSize = isHigh ? 'w-[2.4rem] h-[2.4rem] text-[1.4rem]' : 'w-[3.0rem] h-[3.0rem] text-[1.7rem]';
       const safeCorrections = getSafeArray(corrections);
+      const paperRef = useRef(null);
+
+      // タブレット等のタッチ端末では「長押し→なぞる」で添削範囲を選択できるようにする
+      // （短いタップ・スワイプは通常どおりスクロールやクリックとして扱う）
+      useEffect(() => {
+        if (!isTeacher) return;
+        const el = paperRef.current;
+        if (!el) return;
+
+        let longPressTimer = null;
+        let selecting = false;
+        let startPos = null;
+
+        const cellIdxFromTouch = (touch) => {
+          const target = document.elementFromPoint(touch.clientX, touch.clientY);
+          const cell = target && target.closest ? target.closest('[data-idx]') : null;
+          if (!cell) return null;
+          const idx = parseInt(cell.dataset.idx, 10);
+          return Number.isNaN(idx) ? null : idx;
+        };
+
+        const cancelLongPress = () => { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } };
+
+        const handleTouchStart = (e) => {
+          if (e.touches.length !== 1) { cancelLongPress(); return; }
+          const touch = e.touches[0];
+          const idx = cellIdxFromTouch(touch);
+          if (idx === null) return;
+          startPos = { x: touch.clientX, y: touch.clientY };
+          cancelLongPress();
+          longPressTimer = setTimeout(() => {
+            selecting = true;
+            if (navigator.vibrate) navigator.vibrate(15);
+            if (onCharMouseDown) onCharMouseDown(idx, e);
+          }, 350);
+        };
+
+        const handleTouchMove = (e) => {
+          const touch = e.touches[0];
+          if (selecting) {
+            e.preventDefault(); // 選択中はスクロールさせない
+            const idx = cellIdxFromTouch(touch);
+            if (idx !== null && onCharMouseEnter) onCharMouseEnter(idx);
+            return;
+          }
+          // 長押し前に大きく動いたらスクロール操作とみなしてキャンセル
+          if (startPos && (Math.abs(touch.clientX - startPos.x) > 10 || Math.abs(touch.clientY - startPos.y) > 10)) {
+            cancelLongPress();
+          }
+        };
+
+        const handleTouchEnd = (e) => {
+          cancelLongPress();
+          if (selecting) {
+            selecting = false;
+            e.preventDefault(); // 合成マウスイベントによる二重処理を防ぐ
+            if (onPaperMouseUp) onPaperMouseUp();
+          }
+          startPos = null;
+        };
+
+        el.addEventListener('touchstart', handleTouchStart, { passive: true });
+        el.addEventListener('touchmove', handleTouchMove, { passive: false });
+        el.addEventListener('touchend', handleTouchEnd, { passive: false });
+        el.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+        return () => {
+          cancelLongPress();
+          el.removeEventListener('touchstart', handleTouchStart);
+          el.removeEventListener('touchmove', handleTouchMove);
+          el.removeEventListener('touchend', handleTouchEnd);
+          el.removeEventListener('touchcancel', handleTouchEnd);
+        };
+      }, [isTeacher, onCharMouseDown, onCharMouseEnter, onPaperMouseUp]);
 
       return (
-        <div className="flex flex-row-reverse p-10 gap-8 bg-[#fffaf0] font-serif w-max select-none" onMouseUp={onPaperMouseUp} onMouseLeave={onPaperMouseUp}>
+        <div ref={paperRef} className="flex flex-row-reverse p-10 gap-8 bg-[#fffaf0] font-serif w-max select-none" onMouseUp={onPaperMouseUp} onMouseLeave={onPaperMouseUp}>
           {pages.map((page, pIdx) => (
             <div key={pIdx} className="flex flex-row-reverse border border-green-700/70 bg-white shadow-sm">
               {page.map((line, lIdx) => (
@@ -493,10 +582,11 @@
       );
     };
 
+    const BOOK_SETTINGS = { charsPerLine: 35, linesPerPage: 13, kinsokuMode: 'none' };
+
     const BookPaper = ({ draft }) => {
-      const bookSettings = { charsPerLine: 35, linesPerPage: 13, kinsokuMode: 'none' };
-      const safeIlls = getSafeArray(draft?.illustrations);
-      const contentPages = useMemo(() => parseToPages(draft?.title, draft?.class, draft?.name, draft?.content, bookSettings, false, safeIlls, true), [draft, safeIlls]);
+      const safeIlls = useMemo(() => getSafeArray(draft?.illustrations), [draft]);
+      const contentPages = useMemo(() => parseToPages(draft?.title, draft?.class, draft?.name, draft?.content, BOOK_SETTINGS, false, safeIlls, true), [draft, safeIlls]);
       const allPages = ['cover', ...contentPages];
 
       return (
@@ -562,7 +652,7 @@
                       <div key={lIdx} className="flex-1 flex flex-col border-l border-green-800/60 box-border">
                         {line.slice(0, charsPerLine).map((charObj, cIdx) => (
                           <div key={cIdx} className="flex-1 flex items-center justify-center border-b border-green-800/60 text-slate-800 vertical-rl leading-none relative box-border">
-                            <span style={{ fontSize: 'min(14pt, 2vw)' }}>{charObj.char}</span>
+                            <span style={{ fontSize: '14pt' }}>{charObj.char}</span>
                             {cIdx === charsPerLine - 1 && line.length > charsPerLine && (<div className="absolute top-[100%] left-1/2 -translate-x-1/2 whitespace-nowrap vertical-rl text-[0.6em] mt-[0.1em] pointer-events-none">{line.slice(charsPerLine).map(c => c.char).join('')}</div>)}
                           </div>
                         ))}
@@ -579,7 +669,7 @@
                       <div key={lIdx} className="flex-1 flex flex-col border-l border-green-800/60 box-border">
                         {line.slice(0, charsPerLine).map((charObj, cIdx) => (
                           <div key={cIdx} className="flex-1 flex items-center justify-center border-b border-green-800/60 text-slate-800 vertical-rl leading-none relative box-border">
-                            <span style={{ fontSize: 'min(14pt, 2vw)' }}>{charObj.char}</span>
+                            <span style={{ fontSize: '14pt' }}>{charObj.char}</span>
                             {cIdx === charsPerLine - 1 && line.length > charsPerLine && (<div className="absolute top-[100%] left-1/2 -translate-x-1/2 whitespace-nowrap vertical-rl text-[0.6em] mt-[0.1em] pointer-events-none">{line.slice(charsPerLine).map(c => c.char).join('')}</div>)}
                           </div>
                         ))}
@@ -596,9 +686,8 @@
 
     const PrintBookView = ({ draft }) => {
       if (!draft) return null;
-      const bookSettings = { charsPerLine: 35, linesPerPage: 13, kinsokuMode: 'none' };
       const safeIlls = getSafeArray(draft.illustrations);
-      const contentPages = parseToPages(draft.title, draft.class, draft.name, draft.content, bookSettings, false, safeIlls, true);
+      const contentPages = parseToPages(draft.title, draft.class, draft.name, draft.content, BOOK_SETTINGS, false, safeIlls, true);
       const allPages = ['cover', ...contentPages];
       
       const spreads = [];
@@ -653,9 +742,8 @@
 
     // --- ギャラリー用の全画面インタラクティブリーダー ---
     const InteractiveBookViewer = ({ draft, onClose, handleAddComment }) => {
-      const bookSettings = { charsPerLine: 35, linesPerPage: 13, kinsokuMode: 'none' };
-      const safeIlls = getSafeArray(draft?.illustrations);
-      const contentPages = useMemo(() => parseToPages(draft?.title, draft?.class, draft?.name, draft?.content, bookSettings, false, safeIlls, true), [draft, safeIlls]);
+      const safeIlls = useMemo(() => getSafeArray(draft?.illustrations), [draft]);
+      const contentPages = useMemo(() => parseToPages(draft?.title, draft?.class, draft?.name, draft?.content, BOOK_SETTINGS, false, safeIlls, true), [draft, safeIlls]);
       const allPages = useMemo(() => ['cover', ...contentPages], [contentPages]);
       
       const [currentPage, setCurrentPage] = useState(0);
@@ -844,6 +932,8 @@
       const [tab, setTab] = useState('write');
       const [selectedCor, setSelectedCor] = useState(null);
       const [isDuplicateConfirmOpen, setIsDuplicateConfirmOpen] = useState(false);
+      // モバイル・タブレット縦持ちでは「かく」と「プレビュー」を切り替えて全画面で使う
+      const [mobilePane, setMobilePane] = useState('edit');
 
       const previewContainerRef = useRef(null);
 
@@ -926,8 +1016,12 @@
       }, [draft.correction, draft.content]);
 
       return (
-        <div className="flex-1 flex gap-4 p-4 min-h-0">
-          <div className="w-1/3 bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col lg:flex-row gap-2 lg:gap-4 p-2 lg:p-4 min-h-0">
+          <div className="flex lg:hidden bg-white rounded-xl border border-slate-200 shadow-sm p-1 gap-1 shrink-0">
+            <button onClick={() => setMobilePane('edit')} className={`flex-1 pt-2.5 pb-1.5 rounded-lg text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 ${mobilePane === 'edit' ? 'bg-orange-500 text-white shadow-sm' : 'text-slate-500'}`}><i className="bi bi-pencil-fill text-[14px] -mt-1"></i>かく</button>
+            <button onClick={() => setMobilePane('preview')} className={`flex-1 pt-2.5 pb-1.5 rounded-lg text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 ${mobilePane === 'preview' ? 'bg-orange-500 text-white shadow-sm' : 'text-slate-500'}`}><i className="bi bi-eye-fill text-[14px] -mt-1"></i>プレビュー</button>
+          </div>
+          <div className={`${mobilePane === 'edit' ? 'flex' : 'hidden'} lg:flex flex-1 lg:flex-none min-h-0 w-full lg:w-1/3 bg-white rounded-2xl shadow-sm border border-slate-200 flex-col overflow-hidden`}>
             <div className="flex border-b border-slate-100 bg-slate-50 shrink-0">
               <button onClick={() => setTab('write')} className={`flex-1 pt-5 pb-3 font-bold transition-all active:scale-95 leading-loose ${tab==='write' ? 'text-orange-600 bg-white border-b-2 border-orange-600' : 'text-slate-500 hover:bg-slate-100/50'}`}><Rb t="書" r="か"/>く</button>
               <button onClick={() => setTab('illust')} className={`flex-1 pt-5 pb-3 font-bold transition-all active:scale-95 leading-loose ${tab==='illust' ? 'text-orange-600 bg-white border-b-2 border-orange-600' : 'text-slate-500 hover:bg-slate-100/50'}`}><Rb t="挿絵" r="さしえ"/></button>
@@ -1042,8 +1136,8 @@
             </div>
           </div>
 
-          <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col overflow-hidden relative min-w-0">
-            <div className="absolute top-4 right-4 z-20 flex gap-1 bg-slate-100 p-1 rounded-xl shadow-sm border border-slate-200/80 items-center">
+          <div className={`${mobilePane === 'preview' ? 'flex' : 'hidden'} lg:flex flex-1 min-h-0 bg-white rounded-2xl shadow-sm border border-slate-200 flex-col overflow-hidden relative min-w-0`}>
+            <div className="absolute top-2 right-2 lg:top-4 lg:right-4 z-20 flex gap-1 bg-slate-100 p-1 rounded-xl shadow-sm border border-slate-200/80 items-center">
               <button onClick={() => setPreviewMode('genko')} className={`px-3 pt-3 pb-1.5 rounded-lg text-sm font-bold transition-all active:scale-95 leading-loose ${previewMode==='genko' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><Rb t="原稿用紙" r="げんこうようし"/></button>
               <button onClick={() => setPreviewMode('book')} className={`px-3 pt-3 pb-1.5 rounded-lg text-sm font-bold transition-all active:scale-95 leading-loose ${previewMode==='book' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><Rb t="本" r="ほん"/></button>
               <div className="w-px h-5 bg-slate-300 mx-1 self-center" />
@@ -1086,13 +1180,13 @@
     const GalleryView = ({ db, onOpenBook }) => {
       const published = db.filter(d => d.status === 'submitted' || d.status === 'completed');
       return (
-        <div className="flex-1 overflow-auto bg-[url('https://www.transparenttextures.com/patterns/cream-paper.png')] p-8 no-print min-h-0">
+        <div className="flex-1 overflow-auto bg-gradient-to-b from-amber-50/70 via-emerald-50/30 to-emerald-50/60 p-4 sm:p-8 no-print min-h-0">
           <div className="max-w-7xl mx-auto">
-            <h2 className="text-3xl font-bold text-emerald-800 mb-8 flex items-center gap-3 justify-center pt-2 leading-loose"><i className="bi bi-book text-[32px] -mt-2"></i> <span>みんなの<Rb t="作品" r="さくひん"/>だな</span></h2>
+            <h2 className="text-2xl sm:text-3xl font-bold text-emerald-800 mb-6 sm:mb-8 flex items-center gap-3 justify-center pt-2 leading-loose"><i className="bi bi-book text-[32px] -mt-2"></i> <span>みんなの<Rb t="作品" r="さくひん"/>だな</span></h2>
             {published.length === 0 ? (
               <div className="text-center text-slate-500 mt-20 font-bold bg-white/50 py-10 pt-12 rounded-2xl border border-slate-200 backdrop-blur-sm leading-loose">まだ<Rb t="作品" r="さくひん"/>がありません。</div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-8">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-8">
                 {published.map(d => (
                   <div key={d.id} onClick={() => onOpenBook(d)} className="relative aspect-[3/4] bg-gradient-to-br from-slate-50 to-slate-200 rounded-r-2xl rounded-l-sm shadow-xl hover:-translate-y-2 active:scale-[0.98] transition-all duration-300 cursor-pointer border-l-[12px] border-emerald-700 flex flex-col items-center justify-center p-5 group">
                      <div className="absolute inset-y-0 left-2 w-px bg-white/60 shadow-sm" />
@@ -1109,8 +1203,10 @@
     };
 
     // --- カスタムコンファームモーダルと楽観的UI更新を備えたTeacherView ---
-    const TeacherView = ({ db, settings, updateStatusOptimistic, updateDraftInDB, onRefresh, selectedId, setSelectedId, previewMode, setPreviewMode, setGlobalPrintDrafts, showLoading, hideLoading, showToast }) => {
+    const TeacherView = ({ db, settings, teacherPassword, updateStatusOptimistic, updateDraftInDB, onRefresh, selectedId, setSelectedId, previewMode, setPreviewMode, setGlobalPrintDrafts, showLoading, hideLoading, showToast }) => {
       const [checkedIds, setCheckedIds] = useState(new Set());
+      // モバイルでは一覧と詳細を切り替えて全画面で使う
+      const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
       const drafts = db.filter(d => d.status !== 'draft');
       
       const [searchQuery, setSearchQuery] = useState('');
@@ -1237,7 +1333,7 @@
           if (!selectedDraft) return;
           showLoading(<><Rb t="AI" r="エーアイ"/>が添削中...</>);
           try {
-              const resultItems = await runGAS('analyzeEssayWithGemini', selectedDraft.title, selectedDraft.class, selectedDraft.content);
+              const resultItems = await runGAS('analyzeEssayWithGemini', teacherPassword, selectedDraft.title, selectedDraft.class, selectedDraft.content);
               if (!resultItems || resultItems.length === 0) { showToast('修正提案はありませんでした', 'success'); return; }
               const currentContent = selectedDraft.content || '';
               let parsedCorrections = parseCorrectionData(selectedDraft.correction, currentContent);
@@ -1273,7 +1369,7 @@
               if (d) {
                   showLoading(`一括AI添削中... (${i}/${total})\n${d.name}`);
                   try {
-                      const resultItems = await runGAS('analyzeEssayWithGemini', d.title, d.class, d.content);
+                      const resultItems = await runGAS('analyzeEssayWithGemini', teacherPassword, d.title, d.class, d.content);
                       if (resultItems && resultItems.length > 0) {
                           const currentContent = d.content || '';
                           let parsedCorrections = parseCorrectionData(d.correction, currentContent);
@@ -1336,7 +1432,7 @@
 
       return (
         <div className="flex-1 flex bg-slate-100 no-print min-h-0">
-          <div className="w-[340px] border-r border-slate-200 bg-white flex flex-col h-full overflow-hidden shadow-sm z-10 shrink-0">
+          <div className={`${mobileDetailOpen ? 'hidden lg:flex' : 'flex'} w-full lg:w-[340px] border-r border-slate-200 bg-white flex-col h-full overflow-hidden shadow-sm z-10 shrink-0`}>
             <div className="p-4 border-b border-slate-100 bg-rose-50/50 text-rose-800 font-bold flex flex-col gap-3 shrink-0">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2"><i className="bi bi-person-gear text-[22px] text-rose-600"></i> 管理画面</div>
@@ -1379,7 +1475,7 @@
             <div className="flex-1 overflow-auto hide-scrollbar">
               {filteredDrafts.length === 0 && <div className="p-5 text-center text-slate-400 text-sm font-bold mt-4">該当する作品がありません</div>}
               {filteredDrafts.map(d => (
-                <div key={d.id} onClick={() => setSelectedId(d.id)} className={`p-4 border-b border-slate-100 cursor-pointer transition-all active:scale-[0.99] flex gap-3 ${selectedId === d.id ? 'bg-rose-50 border-l-4 border-l-rose-500 shadow-inner' : 'hover:bg-slate-50 border-l-4 border-l-transparent'}`}>
+                <div key={d.id} onClick={() => { setSelectedId(d.id); setMobileDetailOpen(true); }} className={`p-4 border-b border-slate-100 cursor-pointer transition-all active:scale-[0.99] flex gap-3 ${selectedId === d.id ? 'bg-rose-50 border-l-4 border-l-rose-500 shadow-inner' : 'hover:bg-slate-50 border-l-4 border-l-transparent'}`}>
                    <div className="pt-0.5" onClick={e => toggleCheck(e, d.id)}>
                       <i className={`bi text-[18px] ${checkedIds.has(d.id) ? 'bi-check-square-fill text-rose-500' : 'bi-square text-slate-300'}`}></i>
                    </div>
@@ -1402,12 +1498,15 @@
             </div>
           </div>
           
-          <div className="flex-1 flex flex-col bg-slate-100/50 min-w-0">
+          <div className={`${mobileDetailOpen ? 'flex' : 'hidden lg:flex'} flex-1 flex-col bg-slate-100/50 min-w-0`}>
              {selectedDraft ? (
                <>
-                 <div className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between shadow-sm z-10 shrink-0">
-                   <div className="font-bold text-slate-800 flex items-center gap-2 truncate max-w-[30%]"><span className="text-slate-400 font-normal">{selectedDraft.class}</span> {selectedDraft.name} <span className="text-slate-300">|</span> {selectedDraft.title}</div>
-                   
+                 <div className="lg:h-16 bg-white border-b border-slate-200 px-2 lg:px-6 py-2 lg:py-0 flex flex-wrap items-center justify-between gap-2 shadow-sm z-10 shrink-0">
+                   <div className="flex items-center gap-1 min-w-0 max-w-full lg:max-w-[30%]">
+                     <button onClick={() => setMobileDetailOpen(false)} className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-all active:scale-90 shrink-0" title="一覧にもどる"><i className="bi bi-arrow-left text-[20px]"></i></button>
+                     <div className="font-bold text-slate-800 flex items-center gap-2 truncate"><span className="text-slate-400 font-normal">{selectedDraft.class}</span> {selectedDraft.name} <span className="text-slate-300">|</span> {selectedDraft.title}</div>
+                   </div>
+
                    <div className="flex gap-1 bg-slate-100 p-1 rounded-xl shrink-0">
                      <button onClick={() => setPreviewMode('genko')} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all active:scale-95 ${previewMode==='genko' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>原稿</button>
                      <button onClick={() => setPreviewMode('book')} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all active:scale-95 ${previewMode==='book' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>本</button>
@@ -1497,19 +1596,27 @@
       );
     };
 
-    const TeacherSettingsModal = ({ isOpen, onClose, showLoading, hideLoading, showToast }) => {
+    const TeacherSettingsModal = ({ isOpen, onClose, teacherPassword, onPasswordChanged, showLoading, hideLoading, showToast }) => {
         const [apiKey, setApiKey] = useState('');
         const [password, setPassword] = useState('');
 
         const handleSave = async () => {
             showLoading('システム設定を保存中...');
             try {
-                if (apiKey) await runGAS('setGeminiApiKey', apiKey);
-                if (password) await runGAS('updateTeacherPassword', password);
+                if (apiKey) {
+                    const res = await runGAS('setGeminiApiKey', teacherPassword, apiKey);
+                    if (res && res.status === 'error') throw new Error(res.message);
+                }
+                if (password) {
+                    const res = await runGAS('updateTeacherPassword', teacherPassword, password);
+                    if (res && res.status === 'error') throw new Error(res.message);
+                    if (onPasswordChanged) onPasswordChanged(password);
+                }
                 showToast('設定を保存しました。', 'success');
+                setApiKey(''); setPassword('');
                 onClose();
             } catch(e) {
-                showToast('保存エラー。GAS側の関数を確認してください。', 'error');
+                showToast(e.message || '保存エラー。GAS側の関数を確認してください。', 'error');
             } finally {
                 hideLoading();
             }
@@ -1564,16 +1671,38 @@
       const [saveStatus, setSaveStatus] = useState('saved');
       const autoSaveTimerRef = useRef(null);
       const lastSavedDraftRef = useRef(activeDraft);
+      const activeDraftRef = useRef(activeDraft);
+      const modeRef = useRef(mode);
+      // 「新規作成」「開く」で編集対象が切り替わったことを識別する世代カウンタ。
+      // 通信中のオートセーブ結果（採番されたID等）が別の作品へ誤って反映されるのを防ぐ。
+      const draftSessionRef = useRef(0);
+      const pendingSaveRef = useRef(null);
+
+      useEffect(() => { activeDraftRef.current = activeDraft; }, [activeDraft]);
+      useEffect(() => { modeRef.current = mode; }, [mode]);
 
       const [settings, setSettings] = useState(() => {
-        const saved = localStorage.getItem(SETTINGS_KEY);
-        if (saved) return JSON.parse(saved);
+        try {
+          const saved = localStorage.getItem(SETTINGS_KEY);
+          if (saved) return JSON.parse(saved);
+        } catch(e) {}
         return { charsPerLine: 20, linesPerPage: 20, kinsokuMode: 'oidashi' };
       });
 
       useEffect(() => { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
       useEffect(() => { localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(activeDraft)); }, [activeDraft]);
-      useEffect(() => { if (mode === 'student') setGlobalPrintDrafts([activeDraft]); }, [mode, activeDraft]);
+
+      // 印刷直前に印刷対象を同期する。
+      // （以前はキー入力のたびに印刷用DOMを再構築しており、低スペック端末で入力が重くなる原因だった）
+      useEffect(() => {
+        const handleBeforePrint = () => {
+          if (modeRef.current === 'student') {
+            ReactDOM.flushSync(() => setGlobalPrintDrafts([activeDraftRef.current]));
+          }
+        };
+        window.addEventListener('beforeprint', handleBeforePrint);
+        return () => window.removeEventListener('beforeprint', handleBeforePrint);
+      }, []);
 
       const showToast = useCallback((message, type = 'success') => setToast({ isVisible: true, message, type }), []);
       const showLoading = useCallback((text) => setLoading({ isVisible: true, text }), []);
@@ -1584,8 +1713,10 @@
           localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(draftToSave));
       }, []);
       const getLocalQueue = useCallback(() => {
-          const data = localStorage.getItem(OFFLINE_QUEUE_KEY);
-          return data ? JSON.parse(data) : null;
+          try {
+            const data = localStorage.getItem(OFFLINE_QUEUE_KEY);
+            return data ? JSON.parse(data) : null;
+          } catch(e) { return null; }
       }, []);
       const clearLocalQueue = useCallback(() => {
           localStorage.removeItem(OFFLINE_QUEUE_KEY);
@@ -1610,22 +1741,31 @@
               return;
           }
 
+          const session = draftSessionRef.current;
           setSaveStatus('saving');
-          try {
-              const res = await runGAS('saveOrSubmitDraft', draftToSave, false);
-              if (res && res.status === 'success') {
-                  setSaveStatus('saved');
-                  lastSavedDraftRef.current = draftToSave;
-                  setActiveDraft(prev => prev.id === draftToSave.id || !prev.id ? { ...prev, id: res.id, status: res.docStatus } : prev);
-                  clearLocalQueue();
-              } else {
+          const savePromise = (async () => {
+              try {
+                  const res = await runGAS('saveOrSubmitDraft', draftToSave, false);
+                  // 保存中に「新規作成」「開く」で別の作品に切り替わっていたら、結果を反映しない
+                  if (session !== draftSessionRef.current) return;
+                  if (res && res.status === 'success') {
+                      setSaveStatus('saved');
+                      lastSavedDraftRef.current = { ...draftToSave, id: res.id, status: res.docStatus };
+                      setActiveDraft(prev => (prev.id === draftToSave.id || !prev.id) ? { ...prev, id: res.id, status: res.docStatus } : prev);
+                      clearLocalQueue();
+                  } else {
+                      setSaveStatus('error');
+                      saveToLocalQueue(draftToSave);
+                  }
+              } catch(e) {
+                  if (session !== draftSessionRef.current) return;
                   setSaveStatus('error');
                   saveToLocalQueue(draftToSave);
               }
-          } catch(e) {
-              setSaveStatus('error');
-              saveToLocalQueue(draftToSave);
-          }
+          })();
+          pendingSaveRef.current = savePromise;
+          await savePromise;
+          if (pendingSaveRef.current === savePromise) pendingSaveRef.current = null;
       }, [saveToLocalQueue, clearLocalQueue]);
 
       useEffect(() => {
@@ -1646,13 +1786,35 @@
       useEffect(() => {
           const handleOnline = () => {
               const queue = getLocalQueue();
-              if (queue && mode === 'student') {
-                  performAutoSave(queue);
+              if (!queue) return;
+              const current = activeDraftRef.current;
+              const isSameDraft = (queue.id && current.id === queue.id) || JSON.stringify(current) === JSON.stringify(queue);
+              if (isSameDraft && modeRef.current === 'student') {
+                  performAutoSave(current);
+              } else {
+                  // すでに別の作品を編集中でも、キューに残った作品はバックグラウンドで救出保存する
+                  runGAS('saveOrSubmitDraft', queue, false)
+                    .then(res => { if (res && res.status === 'success') clearLocalQueue(); })
+                    .catch(() => {});
               }
           };
           window.addEventListener('online', handleOnline);
           return () => window.removeEventListener('online', handleOnline);
-      }, [getLocalQueue, mode, performAutoSave]);
+      }, [getLocalQueue, clearLocalQueue, performAutoSave]);
+
+      // タブが非表示になる（端末を閉じる・アプリを切り替える等）タイミングで未保存分を即時保存
+      useEffect(() => {
+          const handleVisibility = () => {
+              if (document.visibilityState !== 'hidden') return;
+              if (modeRef.current !== 'student') return;
+              const draftNow = activeDraftRef.current;
+              if (JSON.stringify(draftNow) === JSON.stringify(lastSavedDraftRef.current)) return;
+              if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+              performAutoSave(draftNow);
+          };
+          document.addEventListener('visibilitychange', handleVisibility);
+          return () => document.removeEventListener('visibilitychange', handleVisibility);
+      }, [performAutoSave]);
 
       // 子コンポーネントから明示的にオートセーブキューに入れる用
       const autoSaveDraftToQueue = useCallback((updatedDraft) => {
@@ -1684,7 +1846,12 @@
                                   else if (serverDraft.status === 'rework') msg = '先生から「再提出」で返却されました。\nコメントを確認して直してみましょう。';
                                   else if (serverDraft.status === 'submitted') msg = '作品が「提出済」になりました。';
                                   isUpdated = true;
-                              } else if (serverDraft.correction !== activeDraft.correction || serverDraft.teacherCmt !== activeDraft.teacherCmt) {
+                              } else if (
+                                  // correction はサーバー側で配列/オブジェクト、ローカルではJSON文字列のことがあるため
+                                  // 参照比較ではなく正規化して内容で比較する（以前は毎回「更新されました」と誤通知されていた）
+                                  JSON.stringify(parseCorrectionData(serverDraft.correction, serverDraft.content)) !== JSON.stringify(parseCorrectionData(activeDraft.correction, activeDraft.content)) ||
+                                  (serverDraft.teacherCmt || '') !== (activeDraft.teacherCmt || '')
+                              ) {
                                   msg = '先生が添削・コメントを更新しました。\n確認してみましょう。';
                                   isUpdated = true;
                               }
@@ -1715,9 +1882,17 @@
       const handleSubmitDraft = async () => {
           showLoading(<><Rb t="提出中" r="ていしゅつちゅう"/>...</>);
           try {
-            const res = await runGAS('saveOrSubmitDraft', activeDraft, true);
+            // 進行中のオートセーブと競合して同じ作品が二重登録されないよう、先に完了を待つ
+            const session = draftSessionRef.current;
+            if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+            if (pendingSaveRef.current) { try { await pendingSaveRef.current; } catch(e) {} }
+            const draftNow = { ...activeDraftRef.current };
+            if (session === draftSessionRef.current && !draftNow.id && lastSavedDraftRef.current && lastSavedDraftRef.current.id) {
+                draftNow.id = lastSavedDraftRef.current.id;
+            }
+            const res = await runGAS('saveOrSubmitDraft', draftNow, true);
             if (res.status === 'success') {
-              const submittedDraft = { ...activeDraft, id: res.id, status: res.docStatus };
+              const submittedDraft = { ...draftNow, id: res.id, status: res.docStatus };
               setActiveDraft(submittedDraft);
               lastSavedDraftRef.current = submittedDraft;
               setSaveStatus('saved');
@@ -1738,9 +1913,13 @@
           } catch (e) { showToast(<>データの<Rb t="取得" r="しゅとく"/>に<Rb t="失敗" r="しっぱい"/>しました</>, 'error'); } 
           finally { hideLoading(); }
         } else if (newMode === 'teacher') {
-          if (teacherPassword) { handleRefreshTeacher(); setMode('teacher'); } 
+          if (teacherPassword) { handleRefreshTeacher(); setMode('teacher'); }
           else { setTeacherAuthModalOpen(true); }
-        } else { setMode(newMode); }
+        } else {
+          // 先生モードでしか使わない「差分」表示のまま児童モードに戻らないようにする
+          if (newMode === 'student' && previewMode === 'diff') setPreviewMode('genko');
+          setMode(newMode);
+        }
       };
 
       const handleTeacherAuth = async (pass) => {
@@ -1818,6 +1997,8 @@
 
       const executeNewDraft = () => {
         const newDraft = { title: '', class: '', name: '', content: '', illustrations: [], status: 'draft', comments: [], correction: '' };
+        draftSessionRef.current++;
+        if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
         setActiveDraft(newDraft);
         lastSavedDraftRef.current = newDraft;
         setSaveStatus('saved');
@@ -1830,35 +2011,35 @@
       };
 
       return (
-        <div className="min-h-screen flex flex-col bg-amber-50/40 text-slate-800 font-sans selection:bg-orange-200">
+        <div className="app-shell flex flex-col bg-amber-50/40 text-slate-800 font-sans selection:bg-orange-200">
           <style>{GLOBAL_STYLES}</style>
           <LoadingOverlay isVisible={loading.isVisible} text={loading.text} />
           <ToastMessage isVisible={toast.isVisible} message={toast.message} type={toast.type} onClose={() => setToast(prev => ({...prev, isVisible: false}))} />
           <TeacherAuthModal isOpen={isTeacherAuthModalOpen} onClose={() => setTeacherAuthModalOpen(false)} onSubmit={handleTeacherAuth} />
-          <TeacherSettingsModal isOpen={isTeacherSettingsModalOpen} onClose={() => setIsTeacherSettingsModalOpen(false)} showLoading={showLoading} hideLoading={hideLoading} showToast={showToast} />
+          <TeacherSettingsModal isOpen={isTeacherSettingsModalOpen} onClose={() => setIsTeacherSettingsModalOpen(false)} teacherPassword={teacherPassword} onPasswordChanged={setTeacherPassword} showLoading={showLoading} hideLoading={hideLoading} showToast={showToast} />
 
           <nav className="flex-shrink-0 z-40 w-full bg-white border-b border-slate-200 shadow-sm transition-colors duration-300 no-print" style={{ borderBottomColor: mode === 'teacher' ? '#f43f5e' : mode === 'gallery' ? '#10b981' : '#f97316', borderBottomWidth: '3px' }}>
-            <div className="px-6 py-2.5 flex items-center justify-between w-full">
-              <button onClick={() => handleSwitchMode('student')} className="flex items-center gap-3 hover:opacity-80 transition-all active:scale-95">
-                <div className={`p-2 rounded-xl text-white shadow-sm transition-colors ${mode === 'teacher' ? 'bg-rose-500' : mode === 'gallery' ? 'bg-emerald-500' : 'bg-orange-500'}`}>
-                  <i className="bi bi-book text-[24px]"></i>
+            <div className="px-3 sm:px-6 py-2 sm:py-2.5 flex items-center justify-between w-full gap-2">
+              <button onClick={() => handleSwitchMode('student')} className="flex items-center gap-2 sm:gap-3 hover:opacity-80 transition-all active:scale-95 min-w-0">
+                <div className={`p-1.5 sm:p-2 rounded-xl text-white shadow-sm transition-colors shrink-0 ${mode === 'teacher' ? 'bg-rose-500' : mode === 'gallery' ? 'bg-emerald-500' : 'bg-orange-500'}`}>
+                  <i className="bi bi-book text-[20px] sm:text-[24px]"></i>
                 </div>
-                <div className="flex items-baseline gap-2">
-                  <span className={`font-bold text-xl tracking-wide pt-2 ${mode === 'teacher' ? 'text-rose-600' : mode === 'gallery' ? 'text-emerald-600' : 'text-orange-600'}`}>
+                <div className="flex items-baseline gap-2 min-w-0">
+                  <span className={`font-bold text-lg sm:text-xl tracking-wide pt-2 truncate ${mode === 'teacher' ? 'text-rose-600' : mode === 'gallery' ? 'text-emerald-600' : 'text-orange-600'}`}>
                     オンライン<Rb t="出版社" r="しゅっぱんしゃ"/>
                   </span>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-bold text-white shadow-sm ${mode === 'teacher' ? 'bg-rose-500' : mode === 'gallery' ? 'bg-emerald-500' : 'bg-orange-500'}`}>Pro</span>
+                  <span className={`hidden md:inline px-2 py-0.5 rounded-full text-xs font-bold text-white shadow-sm ${mode === 'teacher' ? 'bg-rose-500' : mode === 'gallery' ? 'bg-emerald-500' : 'bg-orange-500'}`}>Pro</span>
                 </div>
               </button>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
                 <button onClick={handleSettingsClick} className="p-2 pt-3 text-slate-500 hover:bg-slate-100 rounded-full transition-all active:scale-95" title="設定">
                   <i className="bi bi-gear text-[22px]"></i>
                 </button>
-                <button onClick={() => handleSwitchMode('gallery')} className={`px-4 pt-3 pb-2 rounded-full text-sm font-bold flex items-center gap-2 border transition-all active:scale-95 ${mode === 'gallery' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' : 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-emerald-200 hover:text-emerald-600'}`}>
-                  <i className="bi bi-people text-[18px] -mt-1"></i> <span>みんなの<Rb t="作品" r="さくひん"/></span>
+                <button onClick={() => handleSwitchMode('gallery')} title="みんなの作品" className={`px-3 sm:px-4 pt-3 pb-2 rounded-full text-sm font-bold flex items-center gap-2 border transition-all active:scale-95 ${mode === 'gallery' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' : 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-emerald-200 hover:text-emerald-600'}`}>
+                  <i className="bi bi-people text-[18px] -mt-1"></i> <span className="hidden sm:inline">みんなの<Rb t="作品" r="さくひん"/></span>
                 </button>
-                <button onClick={() => handleSwitchMode('teacher')} className={`px-4 pt-3 pb-2 rounded-full text-sm font-bold flex items-center gap-2 border transition-all active:scale-95 ${mode === 'teacher' ? 'bg-rose-50 border-rose-200 text-rose-700 shadow-sm' : 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-rose-200 hover:text-rose-600'}`}>
-                  <i className="bi bi-person-gear text-[18px] -mt-1"></i> <span><Rb t="先生用" r="せんせいよう"/></span>
+                <button onClick={() => handleSwitchMode('teacher')} title="先生用" className={`px-3 sm:px-4 pt-3 pb-2 rounded-full text-sm font-bold flex items-center gap-2 border transition-all active:scale-95 ${mode === 'teacher' ? 'bg-rose-50 border-rose-200 text-rose-700 shadow-sm' : 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-rose-200 hover:text-rose-600'}`}>
+                  <i className="bi bi-person-gear text-[18px] -mt-1"></i> <span className="hidden sm:inline"><Rb t="先生用" r="せんせいよう"/></span>
                 </button>
               </div>
             </div>
@@ -1867,10 +2048,10 @@
           <main className="flex-1 overflow-hidden flex flex-col no-print relative">
             {mode === 'student' && <StudentView draft={activeDraft} settings={settings} updateDraft={(updates) => setActiveDraft(prev => ({...prev, ...updates}))} onSubmitDraft={handleSubmitDraft} onNew={handleNewDraft} openLoadModal={openLoadModal} showToast={showToast} showLoading={showLoading} hideLoading={hideLoading} previewMode={previewMode} setPreviewMode={setPreviewMode} saveStatus={saveStatus} autoSaveDraftToQueue={autoSaveDraftToQueue} />}
             {mode === 'gallery' && <GalleryView db={db} onOpenBook={(draft) => setGalleryBookModal({ isOpen: true, draft })} />}
-            {mode === 'teacher' && <TeacherView db={db} settings={settings} updateStatusOptimistic={updateTeacherStatusOptimistic} updateDraftInDB={updateDraftInDB} onRefresh={handleRefreshTeacher} selectedId={teacherSelectedId} setSelectedId={setTeacherSelectedId} previewMode={previewMode} setPreviewMode={setPreviewMode} setGlobalPrintDrafts={setGlobalPrintDrafts} showLoading={showLoading} hideLoading={hideLoading} showToast={showToast} />}
+            {mode === 'teacher' && <TeacherView db={db} settings={settings} teacherPassword={teacherPassword} updateStatusOptimistic={updateTeacherStatusOptimistic} updateDraftInDB={updateDraftInDB} onRefresh={handleRefreshTeacher} selectedId={teacherSelectedId} setSelectedId={setTeacherSelectedId} previewMode={previewMode} setPreviewMode={setPreviewMode} setGlobalPrintDrafts={setGlobalPrintDrafts} showLoading={showLoading} hideLoading={hideLoading} showToast={showToast} />}
           </main>
 
-          <footer className="flex-shrink-0 w-full bg-white border-t border-slate-200 pt-3 pb-2 text-center text-sm text-slate-500 font-bold no-print z-40 shadow-sm relative">
+          <footer className="hidden sm:block flex-shrink-0 w-full bg-white border-t border-slate-200 pt-3 pb-2 text-center text-sm text-slate-500 font-bold no-print z-40 shadow-sm relative">
             ©2026 オンライン出版社 <a href="https://note.com/cute_borage86" target="_blank" rel="noopener noreferrer" className="text-inherit no-underline hover:opacity-80 transition-opacity">GIGA山</a>
           </footer>
 
@@ -1900,7 +2081,7 @@
              {db.length === 0 ? <div className="text-center text-slate-400 py-10 pt-12 font-bold"><Rb t="保存" r="ほぞん"/>されたデータがありません</div> : (
                <div className="space-y-2">
                  {db.map(d => (
-                   <div key={d.id} onClick={() => { setActiveDraft(d); lastSavedDraftRef.current = d; setSaveStatus('saved'); setLoadModalOpen(false); }} className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:border-orange-300 hover:shadow-md cursor-pointer transition-all active:scale-[0.98] group">
+                   <div key={d.id} onClick={() => { draftSessionRef.current++; if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); setActiveDraft(d); lastSavedDraftRef.current = d; setSaveStatus('saved'); setLoadModalOpen(false); }} className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:border-orange-300 hover:shadow-md cursor-pointer transition-all active:scale-[0.98] group">
                      <div className="min-w-0">
                        <div className="font-bold text-slate-800 text-lg group-hover:text-orange-600 transition-colors pt-2 truncate">{d.title || <Rb t="無題" r="むだい"/>}</div>
                        <div className="text-sm text-slate-500 mt-1 truncate">{d.class} {d.name}</div>

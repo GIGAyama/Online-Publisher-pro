@@ -47,7 +47,7 @@ function doGet() {
   return HtmlService.createTemplateFromFile('index')
       .evaluate()
       .setTitle('オンライン出版社 Pro')
-      .addMetaTag('viewport', 'width=device-width, initial-scale=1.0')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
       .setFaviconUrl('https://drive.google.com/uc?id=1A5yDOUvaYCU6qMJM_ZuKye7ClqQQHzYT&.png');
 }
@@ -348,23 +348,38 @@ function include(filename) {
 // --- 設定およびAI機能 ---
 
 /**
- * Gemini APIキーをプロパティに保存
+ * 教師パスワードの検証（設定変更系APIの認可チェック）
  */
-function setGeminiApiKey(apiKey) {
+function verifyTeacher_(password) {
+  return typeof password === 'string' && password !== '' && password === getTeacherPassword_();
+}
+
+/**
+ * Gemini APIキーをプロパティに保存（要・教師パスワード）
+ */
+function setGeminiApiKey(teacherPassword, apiKey) {
+  if (!verifyTeacher_(teacherPassword)) return { status: 'error', message: 'パスワードが違います。再ログインしてください。' };
   PropertiesService.getScriptProperties().setProperty('GEMINI_API_KEY', apiKey);
+  return { status: 'success' };
 }
 
 /**
- * 教師用パスワードの更新
+ * 教師用パスワードの更新（要・現在の教師パスワード）
  */
-function updateTeacherPassword(password) {
-  PropertiesService.getScriptProperties().setProperty('TEACHER_PASSWORD', password);
+function updateTeacherPassword(teacherPassword, newPassword) {
+  if (!verifyTeacher_(teacherPassword)) return { status: 'error', message: 'パスワードが違います。再ログインしてください。' };
+  if (!newPassword || typeof newPassword !== 'string') return { status: 'error', message: '新しいパスワードを入力してください。' };
+  PropertiesService.getScriptProperties().setProperty('TEACHER_PASSWORD', newPassword);
+  return { status: 'success' };
 }
 
 /**
- * Gemini APIを使用して作文をAI添削する
+ * Gemini APIを使用して作文をAI添削する（要・教師パスワード）
  */
-function analyzeEssayWithGemini(title, className, content) {
+function analyzeEssayWithGemini(teacherPassword, title, className, content) {
+  if (!verifyTeacher_(teacherPassword)) {
+    throw new Error('教師認証に失敗しました。再ログインしてください。');
+  }
   const props = PropertiesService.getScriptProperties();
   const apiKey = props.getProperty('GEMINI_API_KEY');
   
