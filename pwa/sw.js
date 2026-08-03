@@ -5,7 +5,17 @@
  * アプリ本体（Google Apps Script）は常にネットワークから読み込みます。
  * シェルを更新したら CACHE_VERSION を上げてください。
  */
-const CACHE_VERSION = 'opp-shell-v1';
+/*
+ * 【最重要】activate では自アプリ以外のキャッシュを削除しない。
+ *   gigayama.github.io は数十個のアプリが同一オリジンを共有しているため、
+ *   CACHE_PREFIX で始まるキャッシュだけを掃除する。
+ *   以前はここで caches.keys() の結果を全部消していた。そのため
+ *   このアプリを開くたびに、同じ端末に入っている他の GIGA アプリの
+ *   キャッシュまで巻き添えで消え、それらがオフラインで起動しなくなっていた。
+ */
+const CACHE_PREFIX = 'opp-shell-';
+const APP_VERSION = 'v2';   // ← リリースごとに必ず上げる
+const CACHE_VERSION = CACHE_PREFIX + APP_VERSION;
 const SHELL_ASSETS = [
   './',
   './index.html',
@@ -25,7 +35,11 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys
+        // ← 自アプリ接頭辞のものだけを削除する。ここを外すと
+        //    同一オリジンの他アプリを巻き添えにする。
+        .filter((k) => k.startsWith(CACHE_PREFIX) && k !== CACHE_VERSION)
+        .map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
