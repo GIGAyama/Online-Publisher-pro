@@ -1,0 +1,9 @@
+# このリポジトリは npm パッケージを持たない構成（GAS + 単一HTML + PWAシェル）のため、
+# 監視対象は GitHub Actions のみ。将来 package.json を追加した場合は npm の節を足すこと。
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5

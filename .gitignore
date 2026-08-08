@@ -1,0 +1,25 @@
+# 依存パッケージ・ビルド生成物
+node_modules/
+dist/
+build/
+.cache/
+
+# clasp（GASのスクリプトIDが入るため、絶対にコミットしない）
+.clasp.json
+.clasprc.json
+_live/
+
+# 環境変数・秘密情報
+.env
+.env.*
+!.env.example
+
+# 圧縮前の元画像の退避先（P2で使用。リポジトリには含めない）
+.assets-original/
+
+# OS・エディタが作る一時ファイル
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
