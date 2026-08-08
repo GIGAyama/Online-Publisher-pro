@@ -1,0 +1,14 @@
+{
+  "name": "online-publisher-pro",
+  "version": "1.0.0",
+  "description": "オンライン出版社 Pro（GIGA Edition）— 品質ゲート実行用の最小構成。アプリ本体のビルドには使わない。",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "check": "node scripts/check-project.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
