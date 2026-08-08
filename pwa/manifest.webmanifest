@@ -1,18 +1,26 @@
 {
   "name": "オンライン出版社 Pro",
   "short_name": "出版社Pro",
-  "description": "児童が楽しく作文や物語を書けるWebアプリ（GIGAスクール対応）",
+  "description": "書いた作文を原稿用紙や本の形で見られる、児童向けの作文アプリです。先生の添削やみんなの作品だなにも対応しています。",
   "lang": "ja",
-  "start_url": "./index.html",
-  "scope": "./",
+  "dir": "ltr",
+
+  "id": "/Online-Publisher-pro/pwa/index.html",
+  "start_url": "/Online-Publisher-pro/pwa/index.html?source=pwa",
+  "scope": "/Online-Publisher-pro/pwa/",
+
   "display": "standalone",
+  "display_override": ["standalone", "fullscreen", "minimal-ui"],
+  "launch_handler": { "client_mode": ["navigate-existing", "auto"] },
   "orientation": "any",
   "background_color": "#fff7ed",
   "theme_color": "#f97316",
+  "categories": ["education", "kids"],
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
-    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "./icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]
 }

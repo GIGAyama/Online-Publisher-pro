@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#f97316">
+  <meta name="color-scheme" content="light">
+  <title>インターネットにつながっていません｜オンライン出版社 Pro</title>
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="./favicon.png" type="image/png" sizes="32x32">
+  <style>
+    /* アプリ本体と同じ配色・同じフォントにして「壊れた」と思わせない */
+    :root {
+      --safe-t: env(safe-area-inset-top, 0px);
+      --safe-b: env(safe-area-inset-bottom, 0px);
+      --safe-l: env(safe-area-inset-left, 0px);
+      --safe-r: env(safe-area-inset-right, 0px);
+      --fs-body: clamp(15px, 1.6vw + 10px, 18px);
+      --fs-title: clamp(22px, 3.2vw + 14px, 34px);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    body {
+      min-height: 100vh;   /* 古い端末向けフォールバック */
+      min-height: 100dvh;  /* 実際に使われる値 */
+      padding: calc(24px + var(--safe-t)) calc(24px + var(--safe-r)) calc(24px + var(--safe-b)) calc(24px + var(--safe-l));
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;
+      font-family: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "BIZ UDGothic", "Yu Gothic", sans-serif;
+      font-size: var(--fs-body); line-height: 1.8;
+      background: #fff7ed; color: #1e293b; text-align: center;
+    }
+    img { width: 88px; height: 88px; border-radius: 24px; box-shadow: 0 8px 20px rgba(249,115,22,.3); }
+    h1 { font-size: var(--fs-title); color: #c2410c; letter-spacing: .05em; }
+    p { max-width: 30rem; color: #475569; }
+    button {
+      min-width: 44px; min-height: 44px;
+      padding: 14px 32px; margin-top: 4px;
+      font: inherit; font-weight: bold; color: #fff;
+      background: linear-gradient(to right, #f97316, #fb923c);
+      border: 0; border-radius: 12px; cursor: pointer;
+      box-shadow: 0 4px 10px rgba(249,115,22,.35);
+      touch-action: manipulation;
+    }
+    button:active { transform: scale(.97); }
+    :focus-visible { outline: 3px solid #c2410c; outline-offset: 2px; }
+    @media (forced-colors: active) { button { border: 2px solid ButtonText; } }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important; scroll-behavior: auto !important;
+      }
+      button:active { transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <img src="./icons/icon-192.png" width="192" height="192" alt="オンライン出版社 Pro">
+  <h1>いま インターネットに<br>つながっていません</h1>
+  <p>
+    書いたぶんは この端末に のこっています。<br>
+    Wi-Fi が つながったら、もういちど ためしてください。
+  </p>
+  <button type="button" onclick="location.reload()">もういちど ためす</button>
+</body>
+</html>
