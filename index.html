@@ -410,11 +410,32 @@
         const parsedCorrections = parseCorrectionData(draft?.correction, draft?.content);
         const oldText = parsedCorrections.baseText || '';
         const newText = draft?.content || '';
+        const textRef = useRef(null);
+        const [paperWidth, setPaperWidth] = useState(460);
+
+        /* 縦書きなので、本文が長いと行が左へ伸びていく。
+           用紙の幅を460pxに固定していたころは、はみ出した本文が切り取られ、
+           長い作文では差分の書き出しと書き足した部分が読めなかった。
+           描画したあとに本文の実寸をはかって、用紙をその幅に合わせる。 */
+        useEffect(() => {
+            const el = textRef.current;
+            if (!el) return;
+            // フォントの読み込みが終わると行の伸びかたが変わるので、変化を見張って測りなおす
+            const measure = () => {
+                const needed = Math.max(460, el.scrollWidth + 50); // 左右の余白ぶん
+                setPaperWidth((prev) => (Math.abs(prev - needed) > 1 ? needed : prev));
+            };
+            measure();
+            const observer = new ResizeObserver(measure);
+            observer.observe(el);
+            return () => observer.disconnect();
+        }, [oldText, newText]);
+
         return (
             <div className="flex flex-row-reverse p-10 gap-10 bg-slate-100 w-max">
-                <div className="relative w-[460px] h-[580px] bg-white shadow-xl border border-slate-200/60 py-8 px-6 flex flex-col font-serif">
-                    <div className="flex-1 w-full flex justify-center overflow-hidden">
-                        <div className="h-full vertical-rl text-[14px] text-slate-800 tracking-wide text-justify" style={{ lineHeight: '2.0', wordBreak: 'break-all' }}>
+                <div style={{ width: `${paperWidth}px` }} className="relative h-[580px] bg-white shadow-xl border border-slate-200/60 py-8 px-6 flex flex-col font-serif">
+                    <div className="flex-1 min-h-0 flex justify-center">
+                        <div ref={textRef} className="h-full vertical-rl text-[14px] text-slate-800 tracking-wide text-justify" style={{ lineHeight: '2.0', wordBreak: 'break-all' }}>
                             {getDiffElements(oldText, newText)}
                         </div>
                     </div>
@@ -1040,8 +1061,9 @@
                          )}
                          {!isLocked && hasDiff && (<span className="px-2.5 py-1 rounded text-xs font-bold bg-blue-100 text-blue-700 shadow-sm flex items-center gap-1 mt-1"><i className="bi bi-info-circle"></i> <Rb t="変更あり" r="へんこうあり"/></span>)}
                      </div>
-                     <span className={`pt-2 pb-1 px-3 rounded-full text-xs font-bold text-white shadow-sm leading-loose ${draft.status==='submitted'?'bg-blue-500':draft.status==='completed'?'bg-emerald-500':'bg-slate-400'}`}>
-                       {draft.status==='submitted' ? <Rb t="提出済" r="ていしゅつずみ"/> : draft.status==='completed' ? <Rb t="完了" r="かんりょう"/> : <><Rb t="下書" r="したが"/>き</>}
+                     {/* 「開く」の一覧と同じ4種類を出す。再提出で返された作品が「下書き」と表示されていた */}
+                     <span className={`pt-2 pb-1 px-3 rounded-full text-xs font-bold text-white shadow-sm leading-loose ${draft.status==='submitted'?'bg-blue-500':draft.status==='completed'?'bg-emerald-500':draft.status==='rework'?'bg-amber-500':'bg-slate-400'}`}>
+                       {draft.status==='submitted' ? <Rb t="提出済" r="ていしゅつずみ"/> : draft.status==='completed' ? <Rb t="完了" r="かんりょう"/> : draft.status==='rework' ? <Rb t="再提出" r="さいていしゅつ"/> : <><Rb t="下書" r="したが"/>き</>}
                      </span>
                   </div>
                   <input type="text" readOnly={isLocked} placeholder="だいめい" value={draft.title} onChange={e=>updateDraft({title:e.target.value})} className={`shrink-0 w-full px-4 py-3 mb-3 border border-slate-200 rounded-xl outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100 font-bold text-lg transition-all ${isLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50/50 focus:bg-white text-slate-800'}`} />
