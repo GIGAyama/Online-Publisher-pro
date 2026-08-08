@@ -1,0 +1,10 @@
+# このリポジトリは依存パッケージを持たない構成（GAS + 単一HTML + PWAシェル）。
+# package.json は品質ゲートを走らせるためだけのもので dependencies が空なので、
+# 監視対象は GitHub Actions のみとする。依存を追加したら npm の節を足すこと。
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5

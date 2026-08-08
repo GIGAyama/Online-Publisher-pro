@@ -1,0 +1,22 @@
+# GIGA Standard v4 の品質ゲート。
+# 依存パッケージが無いので npm ci は不要。node だけで走る。
+name: quality
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: 品質ゲート
+        run: npm run check

@@ -7,7 +7,32 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="出版社Pro">
+  <meta name="color-scheme" content="light">
   <title>オンライン出版社Pro</title>
+
+  <script>
+    /*
+     * ソフトキーボードが出たときの高さ合わせ。
+     * iOS Safari はキーボードが出ても window.innerHeight（=100dvh）が変わらないため、
+     * 原稿用紙の入力欄がキーボードの下に隠れて「書いている行が見えない」状態になる。
+     * 実際に見えている高さ（visualViewport.height）を --vvh に流し込んで解決する。
+     *
+     * ピンチで拡大しているとき（scale > 1）は visualViewport が「拡大された一部」を
+     * 指すので追随させない。追随させると画面が勝手に縮んで読めなくなる。
+     */
+    (function () {
+      var vv = window.visualViewport;
+      if (!vv) return;
+      var root = document.documentElement;
+      var sync = function () {
+        if (vv.scale > 1.01) { root.style.removeProperty('--vvh'); return; }
+        root.style.setProperty('--vvh', vv.height + 'px');
+      };
+      vv.addEventListener('resize', sync);
+      vv.addEventListener('scroll', sync);
+      sync();
+    })();
+  </script>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
@@ -32,32 +57,85 @@
     const OFFLINE_QUEUE_KEY = 'monogatari_maker_pro_offline_queue';
 
     const GLOBAL_STYLES = `
+      :root {
+        /* ノッチ・ホームバー・丸角の逃げ幅。対応していない端末では 0px になる */
+        --safe-t: env(safe-area-inset-top, 0px);
+        --safe-b: env(safe-area-inset-bottom, 0px);
+        --safe-l: env(safe-area-inset-left, 0px);
+        --safe-r: env(safe-area-inset-right, 0px);
+        /* 画面幅に応じて伸縮する文字サイズ。メディアクエリを何段も書かなくて済む */
+        --fs-body:  clamp(15px, 1.6vw + 10px, 18px);
+        --fs-lead:  clamp(18px, 2.2vw + 12px, 24px);
+        --fs-title: clamp(22px, 3.2vw + 14px, 40px);
+      }
+
       @media print {
         body > #root > div > .no-print { display: none !important; }
         body > #root > div > .print-only { display: block !important; position: absolute; left: 0; top: 0; width: 100%; background: white; z-index: 9999; }
         @page { size: A4 landscape; margin: 0; }
+        /* これが無いと、原稿用紙のマス目と添削の赤線が「背景」と見なされて印刷されない */
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        /* 1枚の作品や表の途中でページが割れないようにする */
+        .print-only > div, table, tr { break-inside: avoid; }
+        .page-break { break-before: page; }
+        a[href]::after { content: ""; }
       }
       @media screen { .print-only { display: none !important; } }
       .vertical-rl { writing-mode: vertical-rl; text-orientation: mixed; }
       .hide-scrollbar::-webkit-scrollbar { display: none; }
       .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-      
+
       @keyframes modalFadeIn { 0% { opacity: 0; transform: translateY(20px); } 100% { opacity: 1; transform: translateY(0); } }
       .animate-modal { animation: modalFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-      
+
       @keyframes toastFadeIn { 0% { opacity: 0; transform: translate(-50%, 20px); } 100% { opacity: 1; transform: translate(-50%, 0); } }
       .animate-toast { animation: toastFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 
+      html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
       html, body, #root { height: 100%; }
+      body { font-size: var(--fs-body); overflow-x: hidden; }
+      /* --vvh は「いま実際に見えている高さ」。iOS Safari はソフトキーボードが出ても
+         100dvh が縮まないため、原稿用紙の入力欄がキーボードの下に隠れてしまう。
+         JS 側（visualViewport）で実測値を流し込み、無い環境では 100dvh に戻す。 */
       .app-shell { height: 100vh; }
-      @supports (height: 100dvh) { .app-shell { height: 100dvh; } }
-      @media print { .app-shell { height: auto; overflow: visible; } }
+      .app-shell { height: 100dvh; }
+      .app-shell { height: var(--vvh, 100dvh); }
+      /* viewport-fit=cover にしているので、横向き時のノッチ側の欠けを自分で避ける */
+      .app-shell { padding-left: var(--safe-l); padding-right: var(--safe-r); }
+      @media print { .app-shell { height: auto; overflow: visible; padding: 0; } }
 
-      button, [role="button"] { touch-action: manipulation; }
+      * { -webkit-tap-highlight-color: transparent; }
+      /* 低学年の指でも押せる下限。アイコンだけのボタンが 38px 程度だった */
+      button, [role="button"] {
+        min-width: 44px; min-height: 44px;
+        touch-action: manipulation;   /* ダブルタップズームの300ms遅延を消す */
+      }
+      /* 引っぱり更新やスクロール連鎖の暴発を防ぐ */
+      .overflow-auto, .overflow-y-auto, .overflow-x-auto, .hide-scrollbar { overscroll-behavior: contain; }
+      /* 手書き・なぞり選択の最中に画面が動かないようにする */
+      .vertical-rl { overscroll-behavior: contain; }
+      :focus-visible { outline: 3px solid #c2410c; outline-offset: 2px; }
+      @media (forced-colors: active) {
+        button, [role="button"] { border: 2px solid ButtonText; }
+      }
+
+      /* 感覚過敏の児童に配慮し、端末側で「視差効果を減らす」設定なら動きを止める */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: .01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: .01ms !important;
+          scroll-behavior: auto !important;
+        }
+      }
+
       /* iOS Safariのフォーカス時自動ズームを防ぐため、モバイルではフォーム部品を16px以上にする */
       @media (max-width: 640px) {
         input[type="text"], input[type="password"], input[type="number"], input[type="date"], input[type="search"], select, textarea { font-size: 16px; }
       }
+
+      /* 大型提示装置（電子黒板）では余白を活かして主役を大きく見せる */
+      @media (min-width: 1600px) { :root { --fs-title: clamp(28px, 3.2vw + 14px, 56px); } }
     `;
 
     const Rb = ({ t, r }) => (
@@ -252,20 +330,70 @@
       return pages;
     };
 
-    const Modal = ({ isOpen, onClose, title, children, maxWidth = 'max-w-2xl' }) => {
+    // モーダルが開いている間、Tab を中に閉じ込める。
+    // これが無いと、背面のボタンにフォーカスが抜けてキーボードだけの児童が迷子になる。
+    const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const useFocusTrap = (isOpen, containerRef, onClose, autoFocus = true) => {
+      // onClose は呼び出し側でインラインの関数として渡されるため、毎回別物になる。
+      // これを useEffect の依存に入れると、再描画のたびに「閉じたときの処理」が走り、
+      // 入力中にフォーカスが奪われてしまう。ref に逃がして依存から外す。
+      const onCloseRef = useRef(onClose);
+      useEffect(() => { onCloseRef.current = onClose; });
+
       useEffect(() => {
-        const handleEsc = (e) => { if (e.key === 'Escape') onClose(); };
-        if (isOpen) window.addEventListener('keydown', handleEsc);
-        return () => window.removeEventListener('keydown', handleEsc);
-      }, [isOpen, onClose]);
+        if (!isOpen) return;
+        const previouslyFocused = document.activeElement;
+
+        // 開いたらモーダルの中にフォーカスを入れる。
+        // 入れておかないと、最初の Tab が背面の要素に飛んでしまう。
+        const timer = setTimeout(() => {
+          const box = containerRef.current;
+          if (!box || box.contains(document.activeElement)) return;
+          const items = Array.from(box.querySelectorAll(FOCUSABLE)).filter(el => el.offsetParent !== null);
+          if (autoFocus && items.length) items[0].focus();
+        }, 0);
+
+        const handleKey = (e) => {
+          if (e.key === 'Escape') { onCloseRef.current && onCloseRef.current(); return; }
+          if (e.key !== 'Tab') return;
+          const box = containerRef.current;
+          if (!box) return;
+          const items = Array.from(box.querySelectorAll(FOCUSABLE)).filter(el => el.offsetParent !== null);
+          if (items.length === 0) return;
+          const first = items[0]; const last = items[items.length - 1];
+          if (!box.contains(document.activeElement)) { e.preventDefault(); first.focus(); return; }
+          if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+          else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        };
+        window.addEventListener('keydown', handleKey);
+        return () => {
+          clearTimeout(timer);
+          window.removeEventListener('keydown', handleKey);
+          // 閉じたら元いた場所にフォーカスを戻す。
+          // ただし「その場で」戻すと、Enter で閉じたときに続く keyup が
+          // 戻り先のボタンに当たって、そのボタンが押されたことになる
+          // （ログイン直後に先生用ログイン画面が開き直る不具合になっていた）。
+          // いま処理中のキー操作が終わってから戻す。
+          setTimeout(() => {
+            if (previouslyFocused && document.contains(previouslyFocused)
+                && typeof previouslyFocused.focus === 'function') previouslyFocused.focus();
+          }, 0);
+        };
+      }, [isOpen, containerRef, autoFocus]);
+    };
+
+    const Modal = ({ isOpen, onClose, title, children, maxWidth = 'max-w-2xl' }) => {
+      const boxRef = useRef(null);
+      const titleId = useMemo(() => 'modal-title-' + Math.random().toString(36).slice(2), []);
+      useFocusTrap(isOpen, boxRef, onClose);
 
       if (!isOpen) return null;
       return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-2 sm:p-4 no-print">
-          <div className={`bg-white rounded-2xl shadow-2xl w-full ${maxWidth} flex flex-col max-h-[95vh] overflow-hidden transform transition-all animate-modal`}>
+          <div ref={boxRef} role="dialog" aria-modal="true" aria-labelledby={titleId} className={`bg-white rounded-2xl shadow-2xl w-full ${maxWidth} flex flex-col max-h-[95vh] overflow-hidden transform transition-all animate-modal`}>
             <div className="flex justify-between items-center p-4 sm:p-5 border-b border-slate-100 bg-slate-50/50 shrink-0">
-              <h3 className="font-bold text-lg text-slate-800 pt-1">{title}</h3>
-              <button onClick={onClose} className="p-1.5 hover:bg-slate-200 rounded-full text-slate-500 transition-all active:scale-90"><i className="bi bi-x-lg text-[20px]"></i></button>
+              <h3 id={titleId} className="font-bold text-lg text-slate-800 pt-1">{title}</h3>
+              <button onClick={onClose} aria-label="閉じる" className="p-1.5 hover:bg-slate-200 rounded-full text-slate-500 transition-all active:scale-90"><i className="bi bi-x-lg text-[20px]" aria-hidden="true"></i></button>
             </div>
             <div className="flex-1 overflow-auto p-4 sm:p-5">{children}</div>
           </div>
@@ -276,20 +404,23 @@
     const TeacherAuthModal = ({ isOpen, onClose, onSubmit }) => {
       const [password, setPassword] = useState('');
       const inputRef = useRef(null);
+      const boxRef = useRef(null);
+      // 自動フォーカスは下の useEffect（パスワード欄）に任せる
+      useFocusTrap(isOpen, boxRef, onClose, false);
       useEffect(() => { if (isOpen) { setPassword(''); setTimeout(() => inputRef.current?.focus(), 100); } }, [isOpen]);
       if (!isOpen) return null;
 
       return (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 backdrop-blur-md p-4 no-print">
-          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-sm flex flex-col max-h-[95vh] overflow-y-auto transform transition-all animate-modal border border-slate-100">
+          <div ref={boxRef} role="dialog" aria-modal="true" aria-labelledby="teacher-auth-title" className="bg-white rounded-[2rem] shadow-2xl w-full max-w-sm flex flex-col max-h-[95vh] overflow-y-auto transform transition-all animate-modal border border-slate-100">
             <div className="flex justify-end p-2 absolute right-0 top-0">
-               <button onClick={onClose} className="p-2 hover:bg-slate-100/50 rounded-full text-slate-400 transition-all active:scale-90"><i className="bi bi-x-lg text-[20px]"></i></button>
+               <button onClick={onClose} aria-label="閉じる" className="p-2 hover:bg-slate-100/50 rounded-full text-slate-500 transition-all active:scale-90"><i className="bi bi-x-lg text-[20px]" aria-hidden="true"></i></button>
             </div>
             <div className="flex flex-col items-center pt-10 pb-4 px-6 bg-gradient-to-b from-rose-50/50 to-white">
               <div className="w-16 h-16 bg-white rounded-full shadow-sm flex items-center justify-center text-rose-500 mb-4 border border-rose-100 ring-4 ring-rose-50/50">
-                <i className="bi bi-shield-lock text-[32px]"></i>
+                <i className="bi bi-shield-lock text-[32px]" aria-hidden="true"></i>
               </div>
-              <h3 className="font-bold text-xl text-slate-800 tracking-wide mt-2 pt-2 leading-loose"><Rb t="先生用" r="せんせいよう"/>ログイン</h3>
+              <h3 id="teacher-auth-title" className="font-bold text-xl text-slate-800 tracking-wide mt-2 pt-2 leading-loose"><Rb t="先生用" r="せんせいよう"/>ログイン</h3>
             </div>
             <div className="p-6 pt-2">
               <input ref={inputRef} type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && onSubmit(password)} placeholder="••••••••" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-rose-400 focus:ring-2 focus:ring-rose-100 font-bold text-xl transition-all text-center tracking-[0.5em]" />
@@ -306,8 +437,12 @@
       const bg = type === 'success' ? 'bg-slate-800' : type === 'error' ? 'bg-rose-600' : 'bg-blue-600';
       const iconColor = type === 'success' ? 'text-emerald-400' : 'text-white';
       return (
-        <div className={`fixed bottom-10 left-1/2 z-[150] px-6 pt-4 pb-3 rounded-2xl shadow-2xl text-white font-bold flex items-center gap-3 animate-toast ${bg} no-print`}>
-          {type === 'error' ? <i className={`bi bi-exclamation-triangle-fill text-[20px] ${iconColor}`}></i> : <i className={`bi bi-check-circle-fill text-[20px] ${iconColor}`}></i>} 
+        // 保存完了・提出などの状態変化を読み上げソフトにも伝える。
+        // エラーは alert（すぐ読む）、それ以外は status（区切りのよいところで読む）。
+        <div role={type === 'error' ? 'alert' : 'status'} aria-live={type === 'error' ? 'assertive' : 'polite'}
+             style={{ bottom: 'calc(2.5rem + var(--safe-b))' }}
+             className={`fixed left-1/2 z-[150] px-6 pt-4 pb-3 rounded-2xl shadow-2xl text-white font-bold flex items-center gap-3 animate-toast ${bg} no-print`}>
+          {type === 'error' ? <i className={`bi bi-exclamation-triangle-fill text-[20px] ${iconColor}`} aria-hidden="true"></i> : <i className={`bi bi-check-circle-fill text-[20px] ${iconColor}`} aria-hidden="true"></i>}
           <span className="tracking-wide whitespace-pre-line leading-relaxed">{message}</span>
         </div>
       );
@@ -316,10 +451,10 @@
     const LoadingOverlay = ({ isVisible, text }) => {
       if (!isVisible) return null;
       return (
-        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-white/70 backdrop-blur-sm no-print transition-all">
+        <div role="status" aria-live="polite" className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-white/70 backdrop-blur-sm no-print transition-all">
           <div className="relative flex flex-col items-center">
             <div className="animate-bounce z-10 bg-gradient-to-br from-orange-400 to-orange-500 text-white p-4 rounded-2xl shadow-lg border border-orange-300/50">
-              <i className="bi bi-book text-[40px]"></i>
+              <i className="bi bi-book text-[40px]" aria-hidden="true"></i>
             </div>
             <div className="w-16 h-3 bg-slate-300/60 rounded-[100%] mt-2 animate-pulse"></div>
           </div>
@@ -439,7 +574,7 @@
                             {getDiffElements(oldText, newText)}
                         </div>
                     </div>
-                    <div className="absolute bottom-5 w-full left-0 text-center text-sm text-slate-400 font-sans tracking-widest">- 差分 -</div>
+                    <div className="absolute bottom-5 w-full left-0 text-center text-sm text-slate-500 font-sans tracking-widest">- 差分 -</div>
                 </div>
             </div>
         );
@@ -645,7 +780,7 @@
                      </div>
                    </div>
                  )}
-                 <div className="absolute bottom-5 w-full left-0 text-center text-sm text-slate-400 font-sans tracking-widest">- {pageNum} -</div>
+                 <div className="absolute bottom-5 w-full left-0 text-center text-sm text-slate-500 font-sans tracking-widest">- {pageNum} -</div>
                </div>
              );
            })}
@@ -750,7 +885,7 @@
                          </div>
                        )}
                        <div className={`absolute -bottom-[12mm] ${idx === 0 ? 'left-[2mm]' : 'right-[2mm]'} text-[10pt] font-sans text-slate-500`}>- {pageNum} -</div>
-                       {page !== 'cover' && (<div className={`absolute -top-[12mm] ${idx === 0 ? 'left-[2mm]' : 'right-[2mm]'} text-[9pt] text-slate-400 font-sans tracking-wider`}>{draft.title ? draft.title.substring(0, 15) : ''}</div>)}
+                       {page !== 'cover' && (<div className={`absolute -top-[12mm] ${idx === 0 ? 'left-[2mm]' : 'right-[2mm]'} text-[9pt] text-slate-500 font-sans tracking-wider`}>{draft.title ? draft.title.substring(0, 15) : ''}</div>)}
                      </div>
                    )
                  })}
@@ -853,11 +988,11 @@
             onTouchEnd={handleTouchEnd}
             style={{ touchAction: 'pan-y' }}
           >
-            <button onClick={goToNextPage} disabled={currentPage === allPages.length - 1} className="absolute left-2 lg:left-10 z-10 w-16 h-32 flex items-center justify-center text-white/50 hover:text-white disabled:opacity-0 transition-colors text-5xl hidden lg:flex cursor-pointer" title="次のページ (左キー)">
-               <i className="bi bi-chevron-left drop-shadow-md"></i>
+            <button onClick={goToNextPage} disabled={currentPage === allPages.length - 1} className="absolute left-2 lg:left-10 z-10 w-16 h-32 flex items-center justify-center text-white/50 hover:text-white disabled:opacity-0 transition-colors text-5xl hidden lg:flex cursor-pointer" title="次のページ (左キー)" aria-label="次のページ">
+               <i className="bi bi-chevron-left drop-shadow-md" aria-hidden="true"></i>
             </button>
-            <button onClick={goToPrevPage} disabled={currentPage === 0} className="absolute right-2 lg:right-10 z-10 w-16 h-32 flex items-center justify-center text-white/50 hover:text-white disabled:opacity-0 transition-colors text-5xl hidden lg:flex cursor-pointer" title="前のページ (右キー)">
-               <i className="bi bi-chevron-right drop-shadow-md"></i>
+            <button onClick={goToPrevPage} disabled={currentPage === 0} className="absolute right-2 lg:right-10 z-10 w-16 h-32 flex items-center justify-center text-white/50 hover:text-white disabled:opacity-0 transition-colors text-5xl hidden lg:flex cursor-pointer" title="前のページ (右キー)" aria-label="前のページ">
+               <i className="bi bi-chevron-right drop-shadow-md" aria-hidden="true"></i>
             </button>
 
             {/* コンテナのサイズに基づいて自動スケール */}
@@ -888,7 +1023,7 @@
                        </div>
                      </div>
                    )}
-                   <div className="absolute bottom-5 w-full left-0 text-center text-sm text-slate-400 font-sans tracking-widest">- {pageNum} -</div>
+                   <div className="absolute bottom-5 w-full left-0 text-center text-sm text-slate-500 font-sans tracking-widest">- {pageNum} -</div>
                  </div>
                </div>
             </div>
@@ -918,10 +1053,10 @@
                   <div key={i} className="bg-white p-4 rounded-2xl border border-slate-200/60 text-sm shadow-sm relative animate-modal" style={{ animationDelay: `${i * 0.05}s` }}>
                     <div className="font-bold text-emerald-600 mb-1 text-xs">{c.name}</div>
                     <div className="text-slate-700 leading-relaxed">{c.text}</div>
-                    <div className="text-[10px] text-slate-400 absolute top-4 right-4">{c.createdAt?.split(' ')[0]}</div>
+                    <div className="text-[10px] text-slate-500 absolute top-4 right-4">{c.createdAt?.split(' ')[0]}</div>
                   </div>
                 )) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 p-6 text-center">
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 p-6 text-center">
                     <i className="bi bi-chat-dots text-[48px] mb-3 text-slate-300"></i>
                     <p className="text-sm font-bold">まだコメントはありません。<br/>最初の感想を書きましょう！</p>
                   </div>
@@ -1077,7 +1212,7 @@
                       <div className="flex items-center gap-1.5 text-xs font-bold pt-1">
                           {saveStatus === 'saved' && <span className="text-emerald-500/80"><i className="bi bi-cloud-check-fill mr-1 text-[14px]"></i>クラウド保存済</span>}
                           {saveStatus === 'saving' && <span className="text-orange-500 animate-pulse"><i className="bi bi-arrow-repeat mr-1 text-[14px]"></i>保存中...</span>}
-                          {saveStatus === 'unsaved' && <span className="text-slate-400"><i className="bi bi-pencil-fill mr-1 text-[14px]"></i>編集中</span>}
+                          {saveStatus === 'unsaved' && <span className="text-slate-500"><i className="bi bi-pencil-fill mr-1 text-[14px]"></i>編集中</span>}
                           {saveStatus === 'offline' && <span className="text-rose-500"><i className="bi bi-cloud-slash-fill mr-1 text-[14px]"></i>オフライン (端末に一時保存)</span>}
                           {saveStatus === 'error' && <span className="text-rose-500"><i className="bi bi-exclamation-circle-fill mr-1 text-[14px]"></i>エラー (端末に一時保存)</span>}
                       </div>
@@ -1108,8 +1243,8 @@
                        <div key={ill.id} className="flex flex-col gap-3 p-4 bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
                          <div className="flex items-center gap-3">
                            <div className="flex flex-col -mt-2 shrink-0">
-                             {!isLocked && <button onClick={() => moveIll(index, 'up')} disabled={index === 0} className={`p-1 transition-transform active:scale-90 ${index === 0 ? 'text-slate-200 cursor-not-allowed' : 'text-slate-400 hover:text-orange-500'}`} title="左(前)へ移動"><i className="bi bi-chevron-up text-[18px]"></i></button>}
-                             {!isLocked && <button onClick={() => moveIll(index, 'down')} disabled={index === safeIlls.length - 1} className={`p-1 transition-transform active:scale-90 ${index === safeIlls.length - 1 ? 'text-slate-200 cursor-not-allowed' : 'text-slate-400 hover:text-orange-500'}`} title="右(後)へ移動"><i className="bi bi-chevron-down text-[18px]"></i></button>}
+                             {!isLocked && <button onClick={() => moveIll(index, 'up')} disabled={index === 0} className={`p-1 transition-transform active:scale-90 ${index === 0 ? 'text-slate-200 cursor-not-allowed' : 'text-slate-500 hover:text-orange-500'}`} title="左(前)へ移動"><i className="bi bi-chevron-up text-[18px]"></i></button>}
+                             {!isLocked && <button onClick={() => moveIll(index, 'down')} disabled={index === safeIlls.length - 1} className={`p-1 transition-transform active:scale-90 ${index === safeIlls.length - 1 ? 'text-slate-200 cursor-not-allowed' : 'text-slate-500 hover:text-orange-500'}`} title="右(後)へ移動"><i className="bi bi-chevron-down text-[18px]"></i></button>}
                            </div>
                            <img src={getDriveImageUrl(ill.dataUrl)} className="w-16 h-16 shrink-0 object-cover rounded-lg bg-slate-100 border border-slate-200" alt="サムネイル" />
                            <div className="flex-1 min-w-0">
@@ -1140,7 +1275,7 @@
                            </div>
                          </div>
                        </div>
-                     )) : <div className="text-center text-slate-400 mt-10 font-bold pt-2 leading-loose"><Rb t="挿絵" r="さしえ"/>はありません</div>}
+                     )) : <div className="text-center text-slate-500 mt-10 font-bold pt-2 leading-loose"><Rb t="挿絵" r="さしえ"/>はありません</div>}
                    </div>
                 </div>
               )}
@@ -1467,7 +1602,7 @@
 
             <div className="p-3 border-b border-slate-100 bg-slate-50 flex flex-col gap-2 shrink-0">
               <div className="relative">
-                <i className="bi bi-search absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                <i className="bi bi-search absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-sm"></i>
                 <input type="text" placeholder="キーワード (名前・題名・本文)" value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} className="w-full pl-8 pr-2 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-400 transition-all" />
               </div>
               <div className="flex flex-col gap-2">
@@ -1480,7 +1615,7 @@
                 </select>
                 <div className="flex gap-1 items-center">
                   <input type="date" value={filterStartDate} onChange={(e)=>setFilterStartDate(e.target.value)} className="flex-1 border border-slate-200 rounded-lg text-xs py-1.5 px-1 focus:outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-400 bg-white transition-all text-slate-600 text-center cursor-pointer" title="開始日" />
-                  <span className="text-slate-400 text-xs">〜</span>
+                  <span className="text-slate-500 text-xs">〜</span>
                   <input type="date" value={filterEndDate} onChange={(e)=>setFilterEndDate(e.target.value)} className="flex-1 border border-slate-200 rounded-lg text-xs py-1.5 px-1 focus:outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-400 bg-white transition-all text-slate-600 text-center cursor-pointer" title="終了日" />
                 </div>
               </div>
@@ -1495,11 +1630,11 @@
             </div>
 
             <div className="flex-1 overflow-auto hide-scrollbar">
-              {filteredDrafts.length === 0 && <div className="p-5 text-center text-slate-400 text-sm font-bold mt-4">該当する作品がありません</div>}
+              {filteredDrafts.length === 0 && <div className="p-5 text-center text-slate-500 text-sm font-bold mt-4">該当する作品がありません</div>}
               {filteredDrafts.map(d => (
                 <div key={d.id} onClick={() => { setSelectedId(d.id); setMobileDetailOpen(true); }} className={`p-4 border-b border-slate-100 cursor-pointer transition-all active:scale-[0.99] flex gap-3 ${selectedId === d.id ? 'bg-rose-50 border-l-4 border-l-rose-500 shadow-inner' : 'hover:bg-slate-50 border-l-4 border-l-transparent'}`}>
                    <div className="pt-0.5" onClick={e => toggleCheck(e, d.id)}>
-                      <i className={`bi text-[18px] ${checkedIds.has(d.id) ? 'bi-check-square-fill text-rose-500' : 'bi-square text-slate-300'}`}></i>
+                      <i className={`bi text-[18px] ${checkedIds.has(d.id) ? 'bi-check-square-fill text-rose-500' : 'bi-square text-slate-500'}`}></i>
                    </div>
                    <div className="flex-1 min-w-0">
                      <div className="flex justify-between items-center mb-1.5">
@@ -1526,7 +1661,7 @@
                  <div className="lg:h-16 bg-white border-b border-slate-200 px-2 lg:px-6 py-2 lg:py-0 flex flex-wrap items-center justify-between gap-2 shadow-sm z-10 shrink-0">
                    <div className="flex items-center gap-1 min-w-0 max-w-full lg:max-w-[30%]">
                      <button onClick={() => setMobileDetailOpen(false)} className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-all active:scale-90 shrink-0" title="一覧にもどる"><i className="bi bi-arrow-left text-[20px]"></i></button>
-                     <div className="font-bold text-slate-800 flex items-center gap-2 truncate"><span className="text-slate-400 font-normal">{selectedDraft.class}</span> {selectedDraft.name} <span className="text-slate-300">|</span> {selectedDraft.title}</div>
+                     <div className="font-bold text-slate-800 flex items-center gap-2 truncate"><span className="text-slate-500 font-normal">{selectedDraft.class}</span> {selectedDraft.name} <span className="text-slate-300">|</span> {selectedDraft.title}</div>
                    </div>
 
                    <div className="flex gap-1 bg-slate-100 p-1 rounded-xl shrink-0">
@@ -1825,18 +1960,33 @@
       }, [getLocalQueue, clearLocalQueue, performAutoSave]);
 
       // タブが非表示になる（端末を閉じる・アプリを切り替える等）タイミングで未保存分を即時保存
+      //
+      // Chromebook（メモリ4GB）は、他のタブを開くとこのタブを黙って破棄することがある。
+      // 破棄の直前に必ず来るのは pagehide なので、visibilitychange だけでは取りこぼす。
+      // また、サーバー保存は非同期のため破棄に間に合わないことがある。そこで
+      // 「同期で確実に書けるローカル退避」を先に行い、そのうえでサーバー保存を試みる。
+      // 書きかけの本文そのものは AUTOSAVE_KEY から次回起動時に復元される。
+      // ここで退避したキューは、通信が復活したときに救出保存される。
       useEffect(() => {
-          const handleVisibility = () => {
-              if (document.visibilityState !== 'hidden') return;
+          const flush = () => {
               if (modeRef.current !== 'student') return;
               const draftNow = activeDraftRef.current;
               if (JSON.stringify(draftNow) === JSON.stringify(lastSavedDraftRef.current)) return;
               if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+              try { saveToLocalQueue(draftNow); } catch (e) {}   // ← 同期。ここだけは必ず通す
               performAutoSave(draftNow);
           };
+          const handleVisibility = () => {
+              if (document.visibilityState !== 'hidden') return;
+              flush();
+          };
           document.addEventListener('visibilitychange', handleVisibility);
-          return () => document.removeEventListener('visibilitychange', handleVisibility);
-      }, [performAutoSave]);
+          window.addEventListener('pagehide', flush);
+          return () => {
+              document.removeEventListener('visibilitychange', handleVisibility);
+              window.removeEventListener('pagehide', flush);
+          };
+      }, [performAutoSave, saveToLocalQueue]);
 
       // 子コンポーネントから明示的にオートセーブキューに入れる用
       const autoSaveDraftToQueue = useCallback((updatedDraft) => {
@@ -2042,9 +2192,9 @@
 
           <nav className="flex-shrink-0 z-40 w-full bg-white border-b border-slate-200 shadow-sm transition-colors duration-300 no-print" style={{ borderBottomColor: mode === 'teacher' ? '#f43f5e' : mode === 'gallery' ? '#10b981' : '#f97316', borderBottomWidth: '3px' }}>
             <div className="px-3 sm:px-6 py-2 sm:py-2.5 flex items-center justify-between w-full gap-2">
-              <button onClick={() => handleSwitchMode('student')} className="flex items-center gap-2 sm:gap-3 hover:opacity-80 transition-all active:scale-95 min-w-0">
+              <button onClick={() => handleSwitchMode('student')} aria-label="じぶんの作品を書く画面にもどる" className="flex items-center gap-2 sm:gap-3 hover:opacity-80 transition-all active:scale-95 min-w-0">
                 <div className={`p-1.5 sm:p-2 rounded-xl text-white shadow-sm transition-colors shrink-0 ${mode === 'teacher' ? 'bg-rose-500' : mode === 'gallery' ? 'bg-emerald-500' : 'bg-orange-500'}`}>
-                  <i className="bi bi-book text-[20px] sm:text-[24px]"></i>
+                  <i className="bi bi-book text-[20px] sm:text-[24px]" aria-hidden="true"></i>
                 </div>
                 <div className="flex items-baseline gap-2 min-w-0">
                   <span className={`font-bold text-lg sm:text-xl tracking-wide pt-2 truncate ${mode === 'teacher' ? 'text-rose-600' : mode === 'gallery' ? 'text-emerald-600' : 'text-orange-600'}`}>
@@ -2054,14 +2204,16 @@
                 </div>
               </button>
               <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
-                <button onClick={handleSettingsClick} className="p-2 pt-3 text-slate-500 hover:bg-slate-100 rounded-full transition-all active:scale-95" title="設定">
-                  <i className="bi bi-gear text-[22px]"></i>
+                {/* 小さい画面では文字ラベルが隠れてアイコンだけになるため、
+                    読み上げソフト用の名前（aria-label）を必ず持たせる */}
+                <button onClick={handleSettingsClick} className="p-2 pt-3 text-slate-500 hover:bg-slate-100 rounded-full transition-all active:scale-95" title="設定" aria-label="設定">
+                  <i className="bi bi-gear text-[22px]" aria-hidden="true"></i>
                 </button>
-                <button onClick={() => handleSwitchMode('gallery')} title="みんなの作品" className={`px-3 sm:px-4 pt-3 pb-2 rounded-full text-sm font-bold flex items-center gap-2 border transition-all active:scale-95 ${mode === 'gallery' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' : 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-emerald-200 hover:text-emerald-600'}`}>
-                  <i className="bi bi-people text-[18px] -mt-1"></i> <span className="hidden sm:inline">みんなの<Rb t="作品" r="さくひん"/></span>
+                <button onClick={() => handleSwitchMode('gallery')} title="みんなの作品" aria-label="みんなの作品" aria-current={mode === 'gallery' ? 'page' : undefined} className={`px-3 sm:px-4 pt-3 pb-2 rounded-full text-sm font-bold flex items-center gap-2 border transition-all active:scale-95 ${mode === 'gallery' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' : 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-emerald-200 hover:text-emerald-600'}`}>
+                  <i className="bi bi-people text-[18px] -mt-1" aria-hidden="true"></i> <span className="hidden sm:inline">みんなの<Rb t="作品" r="さくひん"/></span>
                 </button>
-                <button onClick={() => handleSwitchMode('teacher')} title="先生用" className={`px-3 sm:px-4 pt-3 pb-2 rounded-full text-sm font-bold flex items-center gap-2 border transition-all active:scale-95 ${mode === 'teacher' ? 'bg-rose-50 border-rose-200 text-rose-700 shadow-sm' : 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-rose-200 hover:text-rose-600'}`}>
-                  <i className="bi bi-person-gear text-[18px] -mt-1"></i> <span className="hidden sm:inline"><Rb t="先生用" r="せんせいよう"/></span>
+                <button onClick={() => handleSwitchMode('teacher')} title="先生用" aria-label="先生用" aria-current={mode === 'teacher' ? 'page' : undefined} className={`px-3 sm:px-4 pt-3 pb-2 rounded-full text-sm font-bold flex items-center gap-2 border transition-all active:scale-95 ${mode === 'teacher' ? 'bg-rose-50 border-rose-200 text-rose-700 shadow-sm' : 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-rose-200 hover:text-rose-600'}`}>
+                  <i className="bi bi-person-gear text-[18px] -mt-1" aria-hidden="true"></i> <span className="hidden sm:inline"><Rb t="先生用" r="せんせいよう"/></span>
                 </button>
               </div>
             </div>
@@ -2100,7 +2252,7 @@
           </Modal>
 
           <Modal isOpen={isLoadModalOpen} onClose={() => setLoadModalOpen(false)} title={<><Rb t="保存" r="ほぞん"/>した<Rb t="作品" r="さくひん"/>を<Rb t="開" r="ひら"/>く</>} maxWidth="max-w-xl">
-             {db.length === 0 ? <div className="text-center text-slate-400 py-10 pt-12 font-bold"><Rb t="保存" r="ほぞん"/>されたデータがありません</div> : (
+             {db.length === 0 ? <div className="text-center text-slate-500 py-10 pt-12 font-bold"><Rb t="保存" r="ほぞん"/>されたデータがありません</div> : (
                <div className="space-y-2">
                  {db.map(d => (
                    <div key={d.id} onClick={() => { draftSessionRef.current++; if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); setActiveDraft(d); lastSavedDraftRef.current = d; setSaveStatus('saved'); setLoadModalOpen(false); }} className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:border-orange-300 hover:shadow-md cursor-pointer transition-all active:scale-[0.98] group">
@@ -2112,7 +2264,7 @@
                        <span className={`px-3 pt-2 pb-1 rounded-full text-xs font-bold text-white shadow-sm ${d.status==='submitted'?'bg-blue-500':d.status==='completed'?'bg-emerald-500':d.status==='rework'?'bg-amber-500':'bg-slate-400'}`}>
                          {d.status==='submitted'?<Rb t="提出済" r="ていしゅつずみ"/>:d.status==='completed'?<Rb t="完了" r="かんりょう"/>:d.status==='rework'?<Rb t="再提出" r="さいていしゅつ"/>:<><Rb t="下書" r="したが"/>き</>}
                        </span>
-                       <span className="text-xs text-slate-400 font-bold">{d.updatedAt}</span>
+                       <span className="text-xs text-slate-500 font-bold">{d.updatedAt}</span>
                      </div>
                    </div>
                  ))}
