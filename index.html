@@ -574,7 +574,7 @@
                             {getDiffElements(oldText, newText)}
                         </div>
                     </div>
-                    <div className="absolute bottom-5 w-full left-0 text-center text-sm text-slate-400 font-sans tracking-widest">- 差分 -</div>
+                    <div className="absolute bottom-5 w-full left-0 text-center text-sm text-slate-500 font-sans tracking-widest">- 差分 -</div>
                 </div>
             </div>
         );
@@ -780,7 +780,7 @@
                      </div>
                    </div>
                  )}
-                 <div className="absolute bottom-5 w-full left-0 text-center text-sm text-slate-400 font-sans tracking-widest">- {pageNum} -</div>
+                 <div className="absolute bottom-5 w-full left-0 text-center text-sm text-slate-500 font-sans tracking-widest">- {pageNum} -</div>
                </div>
              );
            })}
@@ -885,7 +885,7 @@
                          </div>
                        )}
                        <div className={`absolute -bottom-[12mm] ${idx === 0 ? 'left-[2mm]' : 'right-[2mm]'} text-[10pt] font-sans text-slate-500`}>- {pageNum} -</div>
-                       {page !== 'cover' && (<div className={`absolute -top-[12mm] ${idx === 0 ? 'left-[2mm]' : 'right-[2mm]'} text-[9pt] text-slate-400 font-sans tracking-wider`}>{draft.title ? draft.title.substring(0, 15) : ''}</div>)}
+                       {page !== 'cover' && (<div className={`absolute -top-[12mm] ${idx === 0 ? 'left-[2mm]' : 'right-[2mm]'} text-[9pt] text-slate-500 font-sans tracking-wider`}>{draft.title ? draft.title.substring(0, 15) : ''}</div>)}
                      </div>
                    )
                  })}
@@ -1023,7 +1023,7 @@
                        </div>
                      </div>
                    )}
-                   <div className="absolute bottom-5 w-full left-0 text-center text-sm text-slate-400 font-sans tracking-widest">- {pageNum} -</div>
+                   <div className="absolute bottom-5 w-full left-0 text-center text-sm text-slate-500 font-sans tracking-widest">- {pageNum} -</div>
                  </div>
                </div>
             </div>
@@ -1053,10 +1053,10 @@
                   <div key={i} className="bg-white p-4 rounded-2xl border border-slate-200/60 text-sm shadow-sm relative animate-modal" style={{ animationDelay: `${i * 0.05}s` }}>
                     <div className="font-bold text-emerald-600 mb-1 text-xs">{c.name}</div>
                     <div className="text-slate-700 leading-relaxed">{c.text}</div>
-                    <div className="text-[10px] text-slate-400 absolute top-4 right-4">{c.createdAt?.split(' ')[0]}</div>
+                    <div className="text-[10px] text-slate-500 absolute top-4 right-4">{c.createdAt?.split(' ')[0]}</div>
                   </div>
                 )) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 p-6 text-center">
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 p-6 text-center">
                     <i className="bi bi-chat-dots text-[48px] mb-3 text-slate-300"></i>
                     <p className="text-sm font-bold">まだコメントはありません。<br/>最初の感想を書きましょう！</p>
                   </div>
@@ -1212,7 +1212,7 @@
                       <div className="flex items-center gap-1.5 text-xs font-bold pt-1">
                           {saveStatus === 'saved' && <span className="text-emerald-500/80"><i className="bi bi-cloud-check-fill mr-1 text-[14px]"></i>クラウド保存済</span>}
                           {saveStatus === 'saving' && <span className="text-orange-500 animate-pulse"><i className="bi bi-arrow-repeat mr-1 text-[14px]"></i>保存中...</span>}
-                          {saveStatus === 'unsaved' && <span className="text-slate-400"><i className="bi bi-pencil-fill mr-1 text-[14px]"></i>編集中</span>}
+                          {saveStatus === 'unsaved' && <span className="text-slate-500"><i className="bi bi-pencil-fill mr-1 text-[14px]"></i>編集中</span>}
                           {saveStatus === 'offline' && <span className="text-rose-500"><i className="bi bi-cloud-slash-fill mr-1 text-[14px]"></i>オフライン (端末に一時保存)</span>}
                           {saveStatus === 'error' && <span className="text-rose-500"><i className="bi bi-exclamation-circle-fill mr-1 text-[14px]"></i>エラー (端末に一時保存)</span>}
                       </div>
@@ -1243,8 +1243,8 @@
                        <div key={ill.id} className="flex flex-col gap-3 p-4 bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
                          <div className="flex items-center gap-3">
                            <div className="flex flex-col -mt-2 shrink-0">
-                             {!isLocked && <button onClick={() => moveIll(index, 'up')} disabled={index === 0} className={`p-1 transition-transform active:scale-90 ${index === 0 ? 'text-slate-200 cursor-not-allowed' : 'text-slate-400 hover:text-orange-500'}`} title="左(前)へ移動"><i className="bi bi-chevron-up text-[18px]"></i></button>}
-                             {!isLocked && <button onClick={() => moveIll(index, 'down')} disabled={index === safeIlls.length - 1} className={`p-1 transition-transform active:scale-90 ${index === safeIlls.length - 1 ? 'text-slate-200 cursor-not-allowed' : 'text-slate-400 hover:text-orange-500'}`} title="右(後)へ移動"><i className="bi bi-chevron-down text-[18px]"></i></button>}
+                             {!isLocked && <button onClick={() => moveIll(index, 'up')} disabled={index === 0} className={`p-1 transition-transform active:scale-90 ${index === 0 ? 'text-slate-200 cursor-not-allowed' : 'text-slate-500 hover:text-orange-500'}`} title="左(前)へ移動"><i className="bi bi-chevron-up text-[18px]"></i></button>}
+                             {!isLocked && <button onClick={() => moveIll(index, 'down')} disabled={index === safeIlls.length - 1} className={`p-1 transition-transform active:scale-90 ${index === safeIlls.length - 1 ? 'text-slate-200 cursor-not-allowed' : 'text-slate-500 hover:text-orange-500'}`} title="右(後)へ移動"><i className="bi bi-chevron-down text-[18px]"></i></button>}
                            </div>
                            <img src={getDriveImageUrl(ill.dataUrl)} className="w-16 h-16 shrink-0 object-cover rounded-lg bg-slate-100 border border-slate-200" alt="サムネイル" />
                            <div className="flex-1 min-w-0">
@@ -1275,7 +1275,7 @@
                            </div>
                          </div>
                        </div>
-                     )) : <div className="text-center text-slate-400 mt-10 font-bold pt-2 leading-loose"><Rb t="挿絵" r="さしえ"/>はありません</div>}
+                     )) : <div className="text-center text-slate-500 mt-10 font-bold pt-2 leading-loose"><Rb t="挿絵" r="さしえ"/>はありません</div>}
                    </div>
                 </div>
               )}
@@ -1602,7 +1602,7 @@
 
             <div className="p-3 border-b border-slate-100 bg-slate-50 flex flex-col gap-2 shrink-0">
               <div className="relative">
-                <i className="bi bi-search absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                <i className="bi bi-search absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-sm"></i>
                 <input type="text" placeholder="キーワード (名前・題名・本文)" value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} className="w-full pl-8 pr-2 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-400 transition-all" />
               </div>
               <div className="flex flex-col gap-2">
@@ -1615,7 +1615,7 @@
                 </select>
                 <div className="flex gap-1 items-center">
                   <input type="date" value={filterStartDate} onChange={(e)=>setFilterStartDate(e.target.value)} className="flex-1 border border-slate-200 rounded-lg text-xs py-1.5 px-1 focus:outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-400 bg-white transition-all text-slate-600 text-center cursor-pointer" title="開始日" />
-                  <span className="text-slate-400 text-xs">〜</span>
+                  <span className="text-slate-500 text-xs">〜</span>
                   <input type="date" value={filterEndDate} onChange={(e)=>setFilterEndDate(e.target.value)} className="flex-1 border border-slate-200 rounded-lg text-xs py-1.5 px-1 focus:outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-400 bg-white transition-all text-slate-600 text-center cursor-pointer" title="終了日" />
                 </div>
               </div>
@@ -1630,11 +1630,11 @@
             </div>
 
             <div className="flex-1 overflow-auto hide-scrollbar">
-              {filteredDrafts.length === 0 && <div className="p-5 text-center text-slate-400 text-sm font-bold mt-4">該当する作品がありません</div>}
+              {filteredDrafts.length === 0 && <div className="p-5 text-center text-slate-500 text-sm font-bold mt-4">該当する作品がありません</div>}
               {filteredDrafts.map(d => (
                 <div key={d.id} onClick={() => { setSelectedId(d.id); setMobileDetailOpen(true); }} className={`p-4 border-b border-slate-100 cursor-pointer transition-all active:scale-[0.99] flex gap-3 ${selectedId === d.id ? 'bg-rose-50 border-l-4 border-l-rose-500 shadow-inner' : 'hover:bg-slate-50 border-l-4 border-l-transparent'}`}>
                    <div className="pt-0.5" onClick={e => toggleCheck(e, d.id)}>
-                      <i className={`bi text-[18px] ${checkedIds.has(d.id) ? 'bi-check-square-fill text-rose-500' : 'bi-square text-slate-300'}`}></i>
+                      <i className={`bi text-[18px] ${checkedIds.has(d.id) ? 'bi-check-square-fill text-rose-500' : 'bi-square text-slate-500'}`}></i>
                    </div>
                    <div className="flex-1 min-w-0">
                      <div className="flex justify-between items-center mb-1.5">
@@ -1661,7 +1661,7 @@
                  <div className="lg:h-16 bg-white border-b border-slate-200 px-2 lg:px-6 py-2 lg:py-0 flex flex-wrap items-center justify-between gap-2 shadow-sm z-10 shrink-0">
                    <div className="flex items-center gap-1 min-w-0 max-w-full lg:max-w-[30%]">
                      <button onClick={() => setMobileDetailOpen(false)} className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-all active:scale-90 shrink-0" title="一覧にもどる"><i className="bi bi-arrow-left text-[20px]"></i></button>
-                     <div className="font-bold text-slate-800 flex items-center gap-2 truncate"><span className="text-slate-400 font-normal">{selectedDraft.class}</span> {selectedDraft.name} <span className="text-slate-300">|</span> {selectedDraft.title}</div>
+                     <div className="font-bold text-slate-800 flex items-center gap-2 truncate"><span className="text-slate-500 font-normal">{selectedDraft.class}</span> {selectedDraft.name} <span className="text-slate-300">|</span> {selectedDraft.title}</div>
                    </div>
 
                    <div className="flex gap-1 bg-slate-100 p-1 rounded-xl shrink-0">
@@ -2252,7 +2252,7 @@
           </Modal>
 
           <Modal isOpen={isLoadModalOpen} onClose={() => setLoadModalOpen(false)} title={<><Rb t="保存" r="ほぞん"/>した<Rb t="作品" r="さくひん"/>を<Rb t="開" r="ひら"/>く</>} maxWidth="max-w-xl">
-             {db.length === 0 ? <div className="text-center text-slate-400 py-10 pt-12 font-bold"><Rb t="保存" r="ほぞん"/>されたデータがありません</div> : (
+             {db.length === 0 ? <div className="text-center text-slate-500 py-10 pt-12 font-bold"><Rb t="保存" r="ほぞん"/>されたデータがありません</div> : (
                <div className="space-y-2">
                  {db.map(d => (
                    <div key={d.id} onClick={() => { draftSessionRef.current++; if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); setActiveDraft(d); lastSavedDraftRef.current = d; setSaveStatus('saved'); setLoadModalOpen(false); }} className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:border-orange-300 hover:shadow-md cursor-pointer transition-all active:scale-[0.98] group">
@@ -2264,7 +2264,7 @@
                        <span className={`px-3 pt-2 pb-1 rounded-full text-xs font-bold text-white shadow-sm ${d.status==='submitted'?'bg-blue-500':d.status==='completed'?'bg-emerald-500':d.status==='rework'?'bg-amber-500':'bg-slate-400'}`}>
                          {d.status==='submitted'?<Rb t="提出済" r="ていしゅつずみ"/>:d.status==='completed'?<Rb t="完了" r="かんりょう"/>:d.status==='rework'?<Rb t="再提出" r="さいていしゅつ"/>:<><Rb t="下書" r="したが"/>き</>}
                        </span>
-                       <span className="text-xs text-slate-400 font-bold">{d.updatedAt}</span>
+                       <span className="text-xs text-slate-500 font-bold">{d.updatedAt}</span>
                      </div>
                    </div>
                  ))}
