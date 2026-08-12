@@ -34,6 +34,7 @@
   <link rel="icon" type="image/png" sizes="512x512" href="./icons/icon-512.png">
   <!-- iOS は maskable に非対応。余白込みの専用アイコンを渡す -->
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <script src="./config.js"></script>
 
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
@@ -60,7 +61,7 @@
       background: #fff7ed;
       color: #1e293b;
       /* viewport-fit=cover にしているので、ノッチ・ホームバーの分を自分で足す。
-         これが無いと iPad の下端で「URLを変える」やアプリの操作ボタンが押せない。 */
+         これが無いと iPad の下端で「学級を変える」やアプリの操作ボタンが押せない。 */
       padding: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l);
       overflow: hidden;
     }
@@ -226,16 +227,19 @@
     <img class="logo" src="./icons/icon-192.png" width="192" height="192" decoding="async" alt="オンライン出版社 Pro">
     <h1>オンライン出版社 Pro</h1>
     <div class="card">
-      <p>はじめに、先生から教えてもらった<br><strong>アプリのURL（Google Apps ScriptのウェブアプリURL）</strong>を入力してください。<br>入力は最初の1回だけです。</p>
-      <label for="gas-url">アプリのURL</label>
-      <input id="gas-url" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
-      <div class="error" id="url-error" role="alert">URLが正しくありません。「https://script.google.com/」から始まるURLを入力してください。</div>
-      <button id="start-btn" type="button">アプリをはじめる</button>
+      <p><strong>学校のGoogleアカウント</strong>で利用します。先生は最初に学級を作り、児童は先生から伝えられた学級コードで参加します。</p>
+      <button id="teacher-btn" type="button">先生として学級を準備する</button>
+      <div style="height:1px;background:#e2e8f0;margin:4px 0" aria-hidden="true"></div>
+      <label for="class-code">児童用・学級コード</label>
+      <input id="class-code" type="text" inputmode="text" maxlength="8" placeholder="例：7K3M9P2R" autocomplete="off" autocapitalize="characters">
+      <div class="error" id="code-error" role="alert">8文字の学級コードを入力してください。</div>
+      <div class="error" id="config-error" role="alert">接続先が未設定です。管理者が pwa/config.js を設定してください。</div>
+      <button id="student-btn" type="button">学級に入る</button>
       <button id="install-btn" type="button">📲 アプリとしてインストール</button>
       <p class="hint">
         ※ このページをホーム画面やシェルフに追加（インストール）すると、次回からアプリのように起動できます。<br>
         ※ iPad・iPhone は Safari の共有ボタン → 「ホーム画面に追加」で入ります。<br>
-        ※ URLをまちがえたときは、アプリ右下の「URLを変える」から入力しなおせます。
+        ※ 学級を変えるときは、アプリ右下の「学級を変える」から入力しなおせます。
       </p>
     </div>
   </div>
@@ -244,7 +248,7 @@
 
   <div class="corner-btns">
     <button id="install-fab" type="button">📲 インストール</button>
-    <button id="change-url" type="button">URLを変える</button>
+    <button id="change-url" type="button">学級を変える</button>
   </div>
 
   <div id="update-toast" role="status" aria-live="polite">
@@ -254,10 +258,12 @@
 
   <script>
     (function () {
-      const STORAGE_KEY = 'opp_gas_url';
+      const STORAGE_KEY = 'opp_class_code';
       const frame = document.getElementById('app-frame');
-      const input = document.getElementById('gas-url');
-      const urlError = document.getElementById('url-error');
+      const input = document.getElementById('class-code');
+      const codeError = document.getElementById('code-error');
+      const configError = document.getElementById('config-error');
+      const backendUrl = String((window.OPP_CONFIG && window.OPP_CONFIG.gasWebAppUrl) || '').trim();
 
       const isValidGasUrl = (url) => {
         try {
@@ -272,37 +278,59 @@
         document.body.classList.add('app-mode');
       };
 
-      // ?app=<GASのURL> で起動された場合は保存して起動（先生が配布するリンク用）
-      // manifest の start_url に付く ?source=pwa は無視される（app パラメータのみ見る）
+      const normalizeClassCode = (value) => String(value || '').toUpperCase().replace(/[^2-9A-HJ-NP-Z]/g, '').slice(0, 8);
+      const buildBackendUrl = (params) => {
+        const url = new URL(backendUrl);
+        Object.keys(params).forEach((key) => url.searchParams.set(key, params[key]));
+        return url.toString();
+      };
+
+      const backendReady = isValidGasUrl(backendUrl);
+      if (!backendReady) {
+        configError.style.display = 'block';
+        document.getElementById('teacher-btn').disabled = true;
+        document.getElementById('student-btn').disabled = true;
+      }
+
+      // ?class=<学級コード> は児童配布用、?mode=teacher は教師セットアップ用。
       const params = new URLSearchParams(location.search);
-      const fromParam = params.get('app');
-      if (fromParam && isValidGasUrl(fromParam)) {
-        localStorage.setItem(STORAGE_KEY, fromParam);
-        history.replaceState(null, '', location.pathname);
+      const directClassCode = normalizeClassCode(params.get('class'));
+      const directTeacher = params.get('mode') === 'teacher';
+      if (backendReady && directTeacher) {
+        launch(buildBackendUrl({ mode: 'teacher' }));
+      } else if (backendReady && directClassCode.length === 8) {
+        localStorage.setItem(STORAGE_KEY, directClassCode);
+        launch(buildBackendUrl({ class: directClassCode }));
       }
 
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved && isValidGasUrl(saved)) {
-        launch(saved);
-      } else if (saved) {
-        localStorage.removeItem(STORAGE_KEY);
+      if (!document.body.classList.contains('app-mode') && backendReady && normalizeClassCode(saved).length === 8) {
+        launch(buildBackendUrl({ class: normalizeClassCode(saved) }));
       }
 
-      document.getElementById('start-btn').addEventListener('click', () => {
-        const url = input.value.trim();
-        if (!isValidGasUrl(url)) { urlError.style.display = 'block'; return; }
-        urlError.style.display = 'none';
-        localStorage.setItem(STORAGE_KEY, url);
-        launch(url);
-      });
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') document.getElementById('start-btn').click();
+      document.getElementById('teacher-btn').addEventListener('click', () => {
+        if (!backendReady) return;
+        launch(buildBackendUrl({ mode: 'teacher' }));
       });
 
+      document.getElementById('student-btn').addEventListener('click', () => {
+        if (!backendReady) return;
+        const code = normalizeClassCode(input.value);
+        input.value = code;
+        if (code.length !== 8) { codeError.style.display = 'block'; return; }
+        codeError.style.display = 'none';
+        localStorage.setItem(STORAGE_KEY, code);
+        launch(buildBackendUrl({ class: code }));
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') document.getElementById('student-btn').click();
+      });
+      input.addEventListener('input', () => { input.value = normalizeClassCode(input.value); });
+
       document.getElementById('change-url').addEventListener('click', () => {
-        if (confirm('アプリのURLを入力しなおしますか？')) {
+        if (confirm('学級コードを入力しなおしますか？')) {
           localStorage.removeItem(STORAGE_KEY);
-          location.reload();
+          location.assign(location.pathname);
         }
       });
 

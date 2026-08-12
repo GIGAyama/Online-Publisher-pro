@@ -17,13 +17,14 @@
  *   児童の書きかけ（monogatari_maker_pro_autosave など）に触れない。
  */
 const CACHE_PREFIX  = 'opp-shell-';
-const APP_VERSION   = 'v3';   // ← リリースごとに必ず上げる
+const APP_VERSION   = 'v4';   // ← リリースごとに必ず上げる
 const CACHE_STATIC  = CACHE_PREFIX + 'static-' + APP_VERSION;
 const CACHE_RUNTIME = CACHE_PREFIX + 'runtime-v1';
 
 const PRECACHE_URLS = [
   './',
   './index.html',
+  './config.js',
   './offline.html',
   './manifest.webmanifest',
   './favicon.png',
