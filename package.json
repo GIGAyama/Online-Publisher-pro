@@ -6,7 +6,8 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "check": "node scripts/check-project.mjs"
+    "check": "node scripts/check-project.mjs && node scripts/test-multitenancy.mjs",
+    "test": "node scripts/test-multitenancy.mjs"
   },
   "engines": {
     "node": ">=18"
