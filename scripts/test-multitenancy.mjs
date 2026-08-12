@@ -76,6 +76,36 @@ assert.throws(() => sandbox.verifyContext_(tamperedToken), /確認できませ�
 
 assert.equal(sandbox.normalizeClassCode_(' 7k3m-9p2r '), '7K3M9P2R');
 assert.equal(sandbox.safeCellText_('=IMPORTXML("x")', 100).startsWith("'="), true);
-assert.throws(() => sandbox.assertWorkspaceDomain_('gmail.com'), /個人用Google/);
+assert.equal(sandbox.isConsumerGoogleDomain_('gmail.com'), true);
+assert.equal(sandbox.isConsumerGoogleDomain_('googlemail.com'), true);
+assert.doesNotThrow(() => sandbox.assertSameDomain_('googlemail.com', 'gmail.com'));
+assert.equal(
+  sandbox.buildSpreadsheetUrl_({ spreadsheetId: 'sheet-1', spreadsheetResourceKey: 'key+1' }),
+  'https://docs.google.com/spreadsheets/d/sheet-1/edit?resourcekey=key%2B1'
+);
+
+const sharingCalls = [];
+const spreadsheetFile = {
+  setSharing: (access, permission) => sharingCalls.push(['file', access, permission]),
+  getResourceKey: () => 'sheet-key'
+};
+const imageFolder = {
+  setSharing: (access, permission) => sharingCalls.push(['folder', access, permission]),
+  getResourceKey: () => 'folder-key'
+};
+sandbox.DriveApp = {
+  Access: { ANYONE_WITH_LINK: 'anyone-link', DOMAIN_WITH_LINK: 'domain-link' },
+  Permission: { EDIT: 'edit' },
+  getFileById: () => spreadsheetFile
+};
+
+const personalSharing = sandbox.shareTenantStorage_('sheet-1', imageFolder, 'gmail.com');
+assert.deepEqual(sharingCalls, [
+  ['file', 'anyone-link', 'edit'],
+  ['folder', 'anyone-link', 'edit']
+]);
+assert.equal(personalSharing.spreadsheetResourceKey, 'sheet-key');
+assert.equal(personalSharing.folderResourceKey, 'folder-key');
+assert.equal(personalSharing.sharingMode, 'link');
 
 console.log('multi-tenant security tests: ok');

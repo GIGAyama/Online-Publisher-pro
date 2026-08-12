@@ -138,7 +138,7 @@
     .card button:active { transform: scale(.97); }
     /* ハイコントラストモードでも「押せる場所」だと分かるように枠を残す */
     @media (forced-colors: active) {
-      .card button, #change-url, #install-fab, #update-toast button { border: 2px solid ButtonText; }
+      .card button, #change-url, #open-direct, #install-fab, #update-toast button { border: 2px solid ButtonText; }
     }
     .error { color: #e11d48; font-size: var(--fs-hint); font-weight: bold; display: none; }
     .hint { font-size: var(--fs-hint); color: #94a3b8; line-height: 1.8; }
@@ -227,7 +227,7 @@
     <img class="logo" src="./icons/icon-192.png" width="192" height="192" decoding="async" alt="オンライン出版社 Pro">
     <h1>オンライン出版社 Pro</h1>
     <div class="card">
-      <p><strong>学校のGoogleアカウント</strong>で利用します。先生は最初に学級を作り、児童は先生から伝えられた学級コードで参加します。</p>
+      <p><strong>Googleアカウント</strong>で利用します。先生は最初に学級を作り、児童は先生から伝えられた学級コードで参加します。学校アカウントでも個人用アカウントでも利用できます。</p>
       <button id="teacher-btn" type="button">先生として学級を準備する</button>
       <div style="height:1px;background:#e2e8f0;margin:4px 0" aria-hidden="true"></div>
       <label for="class-code">児童用・学級コード</label>
@@ -248,6 +248,7 @@
 
   <div class="corner-btns">
     <button id="install-fab" type="button">📲 インストール</button>
+    <button id="open-direct" type="button">別画面で開く</button>
     <button id="change-url" type="button">学級を変える</button>
   </div>
 
@@ -264,6 +265,7 @@
       const codeError = document.getElementById('code-error');
       const configError = document.getElementById('config-error');
       const backendUrl = String((window.OPP_CONFIG && window.OPP_CONFIG.gasWebAppUrl) || '').trim();
+      let currentBackendUrl = '';
 
       const isValidGasUrl = (url) => {
         try {
@@ -274,6 +276,7 @@
       };
 
       const launch = (url) => {
+        currentBackendUrl = url;
         frame.src = url;
         document.body.classList.add('app-mode');
       };
@@ -332,6 +335,14 @@
           localStorage.removeItem(STORAGE_KEY);
           location.assign(location.pathname);
         }
+      });
+
+      // 組織のポリシーやサードパーティCookie制限でGASの認証画面を
+      // iframe内に表示できない場合、トップレベルで開けば認証を完了できる。
+      document.getElementById('open-direct').addEventListener('click', () => {
+        if (!currentBackendUrl) return;
+        const opened = window.open(currentBackendUrl, '_blank', 'noopener,noreferrer');
+        if (opened) opened.opener = null;
       });
 
       // ===== インストール =====
