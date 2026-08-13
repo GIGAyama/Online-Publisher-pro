@@ -39,7 +39,6 @@ function doGet(e) {
     let role;
 
     if (requestedMode === 'teacher') {
-      assertWorkspaceDomain_(user.domain);
       tenant = initTeacherTenant_(user);
       role = 'teacher';
     } else {
@@ -55,7 +54,7 @@ function doGet(e) {
       role: role,
       classCode: tenant.classCode,
       domain: tenant.domain,
-      spreadsheetUrl: role === 'teacher' ? 'https://docs.google.com/spreadsheets/d/' + tenant.spreadsheetId + '/edit' : '',
+      spreadsheetUrl: role === 'teacher' ? buildSpreadsheetUrl_(tenant) : '',
       token: createContextToken_(tenant, role, user.emailHash)
     });
   } catch (error) {
@@ -102,7 +101,7 @@ function initTeacherTenant_(user) {
   }
 
   ensureDatabaseSheets_(ss);
-  shareTenantStorageWithDomain_(spreadsheetId, folder, user.domain);
+  const sharing = shareTenantStorage_(spreadsheetId, folder, user.domain);
 
   if (!classCode) {
     classCode = createUniqueClassCode_();
@@ -113,6 +112,9 @@ function initTeacherTenant_(user) {
     classCode: classCode,
     spreadsheetId: spreadsheetId,
     folderId: folderId,
+    spreadsheetResourceKey: sharing.spreadsheetResourceKey,
+    folderResourceKey: sharing.folderResourceKey,
+    sharingMode: sharing.sharingMode,
     ownerHash: user.emailHash,
     domain: user.domain,
     updatedAt: new Date().toISOString()
@@ -157,13 +159,55 @@ function ensureDatabaseSheets_(ss) {
 
 }
 
-function shareTenantStorageWithDomain_(spreadsheetId, folder, domain) {
+function shareTenantStorage_(spreadsheetId, folder, domain) {
+  const spreadsheetFile = DriveApp.getFileById(spreadsheetId);
+  const personalAccount = isConsumerGoogleDomain_(domain);
+  let sharingMode = personalAccount ? 'link' : 'domain';
+
   try {
-    DriveApp.getFileById(spreadsheetId).setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.EDIT);
-    folder.setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.EDIT);
+    const access = personalAccount ? DriveApp.Access.ANYONE_WITH_LINK : DriveApp.Access.DOMAIN_WITH_LINK;
+    spreadsheetFile.setSharing(access, DriveApp.Permission.EDIT);
+    folder.setSharing(access, DriveApp.Permission.EDIT);
   } catch (error) {
-    throw new Error('学校ドメイン（' + domain + '）への共有設定に失敗しました。Google Workspace管理者がドメイン内リンク共有を許可しているか確認してください。');
+    if (personalAccount) {
+      throw new Error('個人用Googleアカウントのリンク共有設定に失敗しました。Google Driveの共有設定を確認してください。');
+    }
+
+    // Workspace管理者が「ドメイン内リンク共有」を無効にしている環境では、
+    // 通常のリンク共有を試す。こちらも禁止されている場合は管理者の許可が必要。
+    try {
+      spreadsheetFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.EDIT);
+      folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.EDIT);
+      sharingMode = 'link';
+    } catch (fallbackError) {
+      throw new Error('学級データの共有設定に失敗しました。Google Workspace管理者に、Driveのリンク共有を許可してもらってください。');
+    }
   }
+
+  return {
+    sharingMode: sharingMode,
+    spreadsheetResourceKey: String(spreadsheetFile.getResourceKey() || ''),
+    folderResourceKey: String(folder.getResourceKey() || '')
+  };
+}
+
+function buildSpreadsheetUrl_(tenant) {
+  let url = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(tenant.spreadsheetId) + '/edit';
+  if (tenant.spreadsheetResourceKey) {
+    url += '?resourcekey=' + encodeURIComponent(tenant.spreadsheetResourceKey);
+  }
+  return url;
+}
+
+function openTenantSpreadsheet_(tenant) {
+  return SpreadsheetApp.openByUrl(buildSpreadsheetUrl_(tenant));
+}
+
+function openTenantFolder_(tenant) {
+  if (tenant.folderResourceKey) {
+    return DriveApp.getFolderByIdAndResourceKey(tenant.folderId, tenant.folderResourceKey);
+  }
+  return DriveApp.getFolderById(tenant.folderId);
 }
 
 
@@ -177,7 +221,7 @@ function shareTenantStorageWithDomain_(spreadsheetId, folder, domain) {
 function uploadIllustration(base64Data, filename, contextToken) {
   try {
     const context = verifyContext_(contextToken);
-    const folder = DriveApp.getFolderById(context.tenant.folderId);
+    const folder = openTenantFolder_(context.tenant);
     if (typeof base64Data !== 'string' || base64Data.length > 2 * 1024 * 1024) {
       throw new Error('画像サイズが大きすぎます。');
     }
@@ -210,7 +254,7 @@ function saveOrSubmitDraft(draftData, isSubmit, contextToken) {
   try { lock.waitLock(10000); } catch (e) { return { status: 'error', message: 'サーバー混雑中' }; }
 
   try {
-    const ss = SpreadsheetApp.openById(context.tenant.spreadsheetId);
+    const ss = openTenantSpreadsheet_(context.tenant);
     const sheet = ss.getSheetByName(SHEET_DRAFTS);
     const now = new Date();
     
@@ -271,7 +315,7 @@ function getDraftList(mode, contextToken) {
   try {
     const context = verifyContext_(contextToken, mode === 'teacher' ? 'teacher' : null);
 
-    const ss = SpreadsheetApp.openById(context.tenant.spreadsheetId);
+    const ss = openTenantSpreadsheet_(context.tenant);
     
     // 1. 作文データの取得
     const draftSheet = ss.getSheetByName(SHEET_DRAFTS);
@@ -365,7 +409,7 @@ function addGalleryComment(draftId, commentData, contextToken) {
   try { lock.waitLock(5000); } catch (e) { return { status: 'error', message: 'サーバー混雑中' }; }
 
   try {
-    const ss = SpreadsheetApp.openById(context.tenant.spreadsheetId);
+    const ss = openTenantSpreadsheet_(context.tenant);
     const draftSheet = ss.getSheetByName(SHEET_DRAFTS);
     const draftRow = findRowById_(draftSheet, draftId);
     if (draftRow < 2) throw new Error('作品が見つかりません。');
@@ -445,7 +489,7 @@ function normalizeClassCode_(value) {
 function getActiveUser_() {
   const email = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase();
   if (!email || email.indexOf('@') < 1) {
-    throw new Error('Google Workspaceアカウントを確認できません。学校アカウントでログインし、アクセスを許可してください。');
+    throw new Error('Googleアカウントを確認できません。Googleにログインし、アクセスを許可してください。');
   }
   return {
     emailHash: hashText_(email),
@@ -494,23 +538,26 @@ function getTenantByCode_(classCode) {
 }
 
 function assertSameDomain_(actualDomain, expectedDomain) {
-  if (!actualDomain || actualDomain !== expectedDomain) {
-    throw new Error('この学級は ' + expectedDomain + ' の学校アカウント専用です。正しいアカウントに切り替えてください。');
+  if (!actualDomain || normalizeGoogleDomain_(actualDomain) !== normalizeGoogleDomain_(expectedDomain)) {
+    throw new Error('この学級は ' + expectedDomain + ' のGoogleアカウント専用です。正しいアカウントに切り替えてください。');
   }
 }
 
-function assertWorkspaceDomain_(domain) {
-  if (domain === 'gmail.com' || domain === 'googlemail.com') {
-    throw new Error('個人用Googleアカウントでは学級を作成できません。学校のGoogle Workspaceアカウントで入り直してください。');
-  }
+function normalizeGoogleDomain_(domain) {
+  const normalized = String(domain || '').trim().toLowerCase();
+  return normalized === 'googlemail.com' ? 'gmail.com' : normalized;
+}
+
+function isConsumerGoogleDomain_(domain) {
+  return normalizeGoogleDomain_(domain) === 'gmail.com';
 }
 
 function assertTenantAccessible_(tenant) {
   try {
-    SpreadsheetApp.openById(tenant.spreadsheetId).getId();
-    DriveApp.getFolderById(tenant.folderId).getId();
+    openTenantSpreadsheet_(tenant).getId();
+    openTenantFolder_(tenant).getId();
   } catch (error) {
-    throw new Error('学級データへのアクセス権がありません。学校アカウントと共有設定を先生に確認してください。');
+    throw new Error('学級データへのアクセス権がありません。先生に共通入口から学級を開き直してもらい、その後もう一度参加してください。');
   }
 }
 
