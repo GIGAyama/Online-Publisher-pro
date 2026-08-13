@@ -17,7 +17,7 @@
  *   児童の書きかけ（monogatari_maker_pro_autosave など）に触れない。
  */
 const CACHE_PREFIX  = 'opp-shell-';
-const APP_VERSION   = 'v5';   // ← リリースごとに必ず上げる
+const APP_VERSION   = 'v6';   // ← リリースごとに必ず上げる
 const CACHE_STATIC  = CACHE_PREFIX + 'static-' + APP_VERSION;
 const CACHE_RUNTIME = CACHE_PREFIX + 'runtime-v1';
 

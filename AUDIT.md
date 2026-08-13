@@ -130,7 +130,7 @@
 
 ### 1. B1 / F3 — CDN 依存と CSP（最大の課題）
 
-**現状**：`index.html` は Tailwind CDN・React UMD・**Babel standalone** を外部から読み込み、
+**現状**：`index.html` は Tailwind CDN・React UMD・**Babel standalone**・QRCode.js を外部から読み込み、
 2,173行の JSX を**児童の端末で毎回トランスパイル**している。
 初回読み込みは実測で約 1.5MB、目標（300KB）の5倍。校内Wi-Fiで40人同時に開くと最も重い箇所。
 

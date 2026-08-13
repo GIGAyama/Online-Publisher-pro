@@ -126,7 +126,7 @@
 
 ## 🛠 技術スタック
 
-* **Frontend**: React 18 (CDN), Tailwind CSS (CDN), Babel Standalone, Bootstrap Icons, Google Fonts (Zen Maru Gothic / Shippori Mincho), diff-match-patch
+* **Frontend**: React 18 (CDN), Tailwind CSS (CDN), Babel Standalone, Bootstrap Icons, Google Fonts (Zen Maru Gothic / Shippori Mincho), diff-match-patch, QRCode.js
 * **Backend**: Google Apps Script (GAS) — `code.gs`
 * **Database / Storage**: Google Sheets（作文データ・交流コメント）, Google Drive（挿絵画像）
 * **AI Integration**: Google Gemini API (`gemini-2.5-flash`)
@@ -188,8 +188,8 @@ PC / Chromebook のChromeでウェブアプリのURL（`/exec`）を開き、右
 
 3.  `pwa/config.js` の `gasWebAppUrl` にデプロイ済みGAS URL（`/exec`）を設定します。利用者はGAS URLを入力しません。
 
-    * 先生は「先生として学級を準備する」を押します。教師のDriveにDBが作成され、8文字の学級コードが表示されます。
-    * 児童は同じ入口で学級コードを入力します。配布用URL `.../pwa/?class=<学級コード>` なら入力を省略できます。
+    * 先生は「先生として学級を準備する」を押します。教師のDriveにDBが作成され、教師画面の歯車から学級コード・児童用専用URL・QRコードを表示できます。
+    * 児童はQRコードまたは専用URLから開くと、学級コードの入力を省略できます。共通入口で8文字の学級コードを直接入力する方法も使えます。
     * 学級を変えるときは、アプリ右下の「学級を変える」を押します。
 
 4.  アドレスバーのインストールアイコン、または画面内の「📲 アプリとしてインストール」ボタンからインストールできます。ボタンはアプリ起動後も右下に出るため、2回目以降に開いた児童でもインストールできます。
@@ -250,7 +250,7 @@ PC / Chromebook のChromeでウェブアプリのURL（`/exec`）を開き、右
 
 1. `pwa/config.js` に発行されたウェブアプリURLを設定し、GitHub Pagesを更新します。
 2. 共通入口で「先生として学級を準備する」を押し、Googleの権限画面を許可します。
-3. 表示された学級コードを児童へ配ります。
+3. 教師画面の歯車を開き、学級コード・児童用専用URL・QRコードのいずれかを児童へ配ります。「招待文をまとめてコピー」なら、学級コードとURLを連絡ツールへそのまま貼り付けられます。
 4. AI添削を使う場合だけ、歯車から教師自身のGemini APIキーを登録します。
 
 > **旧版から更新する場合**：旧版のScript Propertiesにある単一の`SPREADSHEET_ID`は、自動では教師別テナントへ移しません。誤った教師が先に取得する事故を防ぐためです。旧データはバックアップとして保持し、必要な行だけ新しい教師別スプレッドシートへ管理者がコピーしてください。

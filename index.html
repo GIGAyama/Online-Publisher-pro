@@ -41,6 +41,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
   <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700&family=Zen+Old+Mincho:wght@400;700&family=Shippori+Mincho:wght@400;700&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/diff_match_patch/20121119/diff_match_patch.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -1743,6 +1744,67 @@
 
     const TeacherSettingsModal = ({ isOpen, onClose, showLoading, hideLoading, showToast }) => {
         const [apiKey, setApiKey] = useState('');
+        const [qrReady, setQrReady] = useState(false);
+        const qrRef = useRef(null);
+        const studentEntryUrl = APP_CONTEXT.studentEntryUrl || '';
+
+        useEffect(() => {
+            setQrReady(false);
+            if (!isOpen || !studentEntryUrl || !qrRef.current) return;
+            qrRef.current.innerHTML = '';
+            if (typeof window.QRCode !== 'function') return;
+            new window.QRCode(qrRef.current, {
+                text: studentEntryUrl,
+                width: 196,
+                height: 196,
+                colorDark: '#0f172a',
+                colorLight: '#ffffff',
+                correctLevel: window.QRCode.CorrectLevel.M
+            });
+            setQrReady(true);
+        }, [isOpen, studentEntryUrl]);
+
+        const copyText = async (text, label) => {
+            if (!text) return;
+            try {
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(text);
+                } else {
+                    const textarea = document.createElement('textarea');
+                    textarea.value = text;
+                    textarea.style.position = 'fixed';
+                    textarea.style.opacity = '0';
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    if (!document.execCommand('copy')) throw new Error('copy failed');
+                    textarea.remove();
+                }
+                showToast(label + 'をコピーしました。', 'success');
+            } catch (error) {
+                showToast('コピーできませんでした。文字を長押ししてコピーしてください。', 'error');
+            }
+        };
+
+        const copyInvitation = () => {
+            copyText(
+                'オンライン出版社 Pro に参加してください。\n' +
+                '学級コード：' + APP_CONTEXT.classCode + '\n' +
+                (studentEntryUrl ? '児童用URL：' + studentEntryUrl : ''),
+                '招待文'
+            );
+        };
+
+        const downloadQrCode = () => {
+            const canvas = qrRef.current && qrRef.current.querySelector('canvas');
+            if (!canvas) {
+                showToast('QRコードを保存できませんでした。画面のスクリーンショットをご利用ください。', 'error');
+                return;
+            }
+            const link = document.createElement('a');
+            link.download = 'オンライン出版社Pro_' + APP_CONTEXT.classCode + '_QR.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        };
 
         const handleSave = async () => {
             showLoading('システム設定を保存中...');
@@ -1762,20 +1824,67 @@
         };
 
         return (
-            <Modal isOpen={isOpen} onClose={onClose} title={<><i className="bi bi-gear-fill text-rose-500 mr-2"></i>システム設定</>} maxWidth="max-w-md">
+            <Modal isOpen={isOpen} onClose={onClose} title={<><i className="bi bi-gear-fill text-rose-500 mr-2"></i>システム設定</>} maxWidth="max-w-2xl">
                 <div className="space-y-6">
                     <div className="bg-rose-50 p-4 rounded-xl border border-rose-100 mb-4">
-                        <p className="text-sm text-rose-800 font-bold">Google Workspaceアカウントで先生本人を確認しています。</p>
+                        <p className="text-sm text-rose-800 font-bold">学級を作成したGoogleアカウントで先生本人を確認しています。</p>
                     </div>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                    <section aria-labelledby="student-invite-title" className="rounded-2xl border border-orange-200 bg-orange-50/60 p-4 sm:p-5 space-y-4">
                         <div>
-                            <div className="text-xs font-bold text-slate-500">学級コード</div>
-                            <div className="font-mono text-2xl font-bold tracking-widest text-slate-800">{APP_CONTEXT.classCode}</div>
+                            <h4 id="student-invite-title" className="font-bold text-lg text-slate-800"><i className="bi bi-person-plus-fill text-orange-500 mr-2"></i>児童を招待</h4>
+                            <p className="mt-1 text-sm text-slate-600">QRコードを読み取るか、専用URLを開くと、学級コードの入力を省略できます。</p>
                         </div>
-                        <a href={APP_CONTEXT.spreadsheetUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-bold text-blue-700 hover:underline">
-                            <i className="bi bi-table"></i> データベースを開く
-                        </a>
-                    </div>
+
+                        <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_220px]">
+                            <div className="space-y-4 min-w-0">
+                                <div className="rounded-xl border border-orange-200 bg-white p-4">
+                                    <div className="text-xs font-bold text-slate-500">学級コード</div>
+                                    <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
+                                        <div className="font-mono text-3xl font-bold tracking-[0.16em] text-slate-800">{APP_CONTEXT.classCode}</div>
+                                        <button type="button" onClick={() => copyText(APP_CONTEXT.classCode, '学級コード')} className="px-3 py-2 rounded-lg border border-orange-200 bg-orange-50 text-orange-700 text-sm font-bold hover:bg-orange-100">
+                                            <i className="bi bi-copy mr-1"></i>コピー
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {studentEntryUrl ? (
+                                    <div className="space-y-2">
+                                        <label htmlFor="student-entry-url" className="block text-xs font-bold text-slate-500">児童用専用URL</label>
+                                        <div className="flex gap-2">
+                                            <input id="student-entry-url" type="text" readOnly value={studentEntryUrl} onFocus={e => e.target.select()} className="min-w-0 flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700" />
+                                            <button type="button" onClick={() => copyText(studentEntryUrl, '専用URL')} aria-label="児童用専用URLをコピー" className="shrink-0 px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 font-bold hover:bg-slate-50">
+                                                <i className="bi bi-copy"></i>
+                                            </button>
+                                        </div>
+                                        <a href={studentEntryUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm font-bold text-blue-700 hover:underline">
+                                            <i className="bi bi-box-arrow-up-right"></i> 児童用画面を確認
+                                        </a>
+                                    </div>
+                                ) : (
+                                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">
+                                        専用URLとQRコードを作るには、GitHub Pagesの共通入口から先生として開き直してください。
+                                    </div>
+                                )}
+
+                                <button type="button" onClick={copyInvitation} className="w-full px-4 py-3 rounded-xl bg-orange-500 text-white font-bold hover:bg-orange-600 transition-all active:scale-95 shadow-sm">
+                                    <i className="bi bi-clipboard-check mr-2"></i>招待文をまとめてコピー
+                                </button>
+                            </div>
+
+                            <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                                <div ref={qrRef} role="img" aria-label="児童用専用URLのQRコード" className="min-h-[196px] min-w-[196px] flex items-center justify-center"></div>
+                                {!qrReady && studentEntryUrl && <p className="text-center text-xs font-bold text-rose-600">QRコードを読み込めませんでした。専用URLをご利用ください。</p>}
+                                <button type="button" onClick={downloadQrCode} disabled={!qrReady} className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 text-sm font-bold hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
+                                    <i className="bi bi-download mr-1"></i>QRコードを保存
+                                </button>
+                            </div>
+                        </div>
+                        <p className="text-xs leading-relaxed text-slate-500">学級コード・専用URL・QRコードは、その学級の児童と保護者だけに共有してください。</p>
+                    </section>
+
+                    <a href={APP_CONTEXT.spreadsheetUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-bold text-blue-700 hover:underline">
+                        <i className="bi bi-table"></i> データベースを開く
+                    </a>
                     <div>
                         <h4 className="font-bold text-slate-700 mb-2">Gemini APIキーの設定</h4>
                         <input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="AI添削用APIキー" className="w-full px-4 py-2 border border-slate-200 rounded-lg outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100" />
@@ -2306,7 +2415,7 @@
           </div>
           <h1 className="text-2xl font-bold text-slate-800">学級に接続できませんでした</h1>
           <p className="mt-4 whitespace-pre-line leading-relaxed text-slate-600">{APP_CONTEXT.message}</p>
-          <p className="mt-5 text-sm font-bold text-slate-500">共通入口へ戻り、学校アカウントと学級コードを確認してください。</p>
+          <p className="mt-5 text-sm font-bold text-slate-500">共通入口へ戻り、Googleアカウントと学級コードを確認してください。</p>
         </section>
       </main>
     );

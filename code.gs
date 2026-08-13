@@ -34,6 +34,7 @@ function doGet(e) {
     const params = (e && e.parameter) || {};
     const requestedMode = String(params.mode || '').toLowerCase();
     const classCode = normalizeClassCode_(params.class || params.code || '');
+    const entryUrl = sanitizeEntryUrl_(params.entry || '');
     const user = getActiveUser_();
     let tenant;
     let role;
@@ -55,6 +56,7 @@ function doGet(e) {
       classCode: tenant.classCode,
       domain: tenant.domain,
       spreadsheetUrl: role === 'teacher' ? buildSpreadsheetUrl_(tenant) : '',
+      studentEntryUrl: role === 'teacher' ? buildStudentEntryUrl_(entryUrl, tenant.classCode) : '',
       token: createContextToken_(tenant, role, user.emailHash)
     });
   } catch (error) {
@@ -484,6 +486,19 @@ function normalizeDraftInput_(draftData) {
 
 function normalizeClassCode_(value) {
   return String(value || '').toUpperCase().replace(/[^2-9A-HJ-NP-Z]/g, '').slice(0, 8);
+}
+
+function sanitizeEntryUrl_(value) {
+  const url = String(value || '').trim().slice(0, 500).split(/[?#]/)[0];
+  if (!/^https:\/\/[a-z0-9.-]+(?::\d{2,5})?(?:\/[a-z0-9._~!$&'()*+,;=:@%\/-]*)?$/i.test(url)) return '';
+  return url;
+}
+
+function buildStudentEntryUrl_(entryUrl, classCode) {
+  const safeEntryUrl = sanitizeEntryUrl_(entryUrl);
+  const safeClassCode = normalizeClassCode_(classCode);
+  if (!safeEntryUrl || safeClassCode.length !== 8) return '';
+  return safeEntryUrl + '?class=' + encodeURIComponent(safeClassCode);
 }
 
 function getActiveUser_() {
