@@ -284,6 +284,7 @@
       const normalizeClassCode = (value) => String(value || '').toUpperCase().replace(/[^2-9A-HJ-NP-Z]/g, '').slice(0, 8);
       const buildBackendUrl = (params) => {
         const url = new URL(backendUrl);
+        url.searchParams.set('entry', location.origin + location.pathname);
         Object.keys(params).forEach((key) => url.searchParams.set(key, params[key]));
         return url.toString();
       };

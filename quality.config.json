@@ -46,7 +46,7 @@
     {
       "id": "cdn-dependencies-index-html",
       "path": "index.html",
-      "reason": "React / ReactDOM / Babel standalone / Tailwind CDN / diff_match_patch を外部CDNから読み込んでいる。自己ホスト化と JSX の事前ビルドが必要で、変更行数が100行を大きく超えるため今回の改修では対象外とした。対処方針は AUDIT.md の「1. B1 / F3」に記載。この例外が残っている間、CSP は投入しない（検証できないCSPは投入しないという規約に従う）。",
+      "reason": "React / ReactDOM / Babel standalone / Tailwind CDN / diff_match_patch / QRCode.js を外部CDNから読み込んでいる。自己ホスト化と JSX の事前ビルドが必要で、変更行数が100行を大きく超えるため今回の改修では対象外とした。対処方針は AUDIT.md の「1. B1 / F3」に記載。この例外が残っている間、CSP は投入しない（検証できないCSPは投入しないという規約に従う）。",
       "approvedBy": "GIGAyama",
       "approvedOn": "2026-08-08"
     }

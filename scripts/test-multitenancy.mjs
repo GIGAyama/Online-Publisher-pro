@@ -46,7 +46,10 @@ const sandbox = {
 };
 
 vm.createContext(sandbox);
-vm.runInContext(fs.readFileSync(new URL('../code.gs', import.meta.url), 'utf8'), sandbox, { filename: 'code.gs' });
+const serverSource = fs.readFileSync(new URL('../code.gs', import.meta.url), 'utf8');
+const appSource = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const pwaSource = fs.readFileSync(new URL('../pwa/index.html', import.meta.url), 'utf8');
+vm.runInContext(serverSource, sandbox, { filename: 'code.gs' });
 
 const teacher = sandbox.getActiveUser_();
 const tenant = {
@@ -75,6 +78,11 @@ const tamperedToken = teacherToken.slice(0, -1) + (teacherToken.endsWith('A') ? 
 assert.throws(() => sandbox.verifyContext_(tamperedToken), /確認できません/);
 
 assert.equal(sandbox.normalizeClassCode_(' 7k3m-9p2r '), '7K3M9P2R');
+assert.equal(
+  sandbox.buildStudentEntryUrl_('https://gigayama.github.io/Online-Publisher-pro/pwa/?source=pwa', '7K3M9P2R'),
+  'https://gigayama.github.io/Online-Publisher-pro/pwa/?class=7K3M9P2R'
+);
+assert.equal(sandbox.buildStudentEntryUrl_('javascript:alert(1)', '7K3M9P2R'), '');
 assert.equal(sandbox.safeCellText_('=IMPORTXML("x")', 100).startsWith("'="), true);
 assert.equal(sandbox.isConsumerGoogleDomain_('gmail.com'), true);
 assert.equal(sandbox.isConsumerGoogleDomain_('googlemail.com'), true);
@@ -107,5 +115,9 @@ assert.deepEqual(sharingCalls, [
 assert.equal(personalSharing.spreadsheetResourceKey, 'sheet-key');
 assert.equal(personalSharing.folderResourceKey, 'folder-key');
 assert.equal(personalSharing.sharingMode, 'link');
+
+assert.match(pwaSource, /searchParams\.set\('entry', location\.origin \+ location\.pathname\)/);
+assert.match(appSource, /児童を招待/);
+assert.match(appSource, /qrcodejs\/1\.0\.0\/qrcode\.min\.js/);
 
 console.log('multi-tenant security tests: ok');
