@@ -79,8 +79,8 @@ assert.throws(() => sandbox.verifyContext_(tamperedToken), /確認できませ�
 
 assert.equal(sandbox.normalizeClassCode_(' 7k3m-9p2r '), '7K3M9P2R');
 assert.equal(
-  sandbox.buildStudentEntryUrl_('https://gigayama.github.io/Online-Publisher-pro/pwa/?source=pwa', '7K3M9P2R'),
-  'https://gigayama.github.io/Online-Publisher-pro/pwa/?class=7K3M9P2R'
+  sandbox.buildStudentEntryUrl_('https://online-publisher-pro.giga-school.com/pwa/?source=pwa', '7K3M9P2R'),
+  'https://online-publisher-pro.giga-school.com/pwa/?class=7K3M9P2R'
 );
 assert.equal(sandbox.buildStudentEntryUrl_('javascript:alert(1)', '7K3M9P2R'), '');
 assert.equal(sandbox.safeCellText_('=IMPORTXML("x")', 100).startsWith("'="), true);

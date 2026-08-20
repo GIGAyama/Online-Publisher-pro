@@ -155,9 +155,16 @@ for (const s of allSource) {
 const sh = CONFIG.shell;
 if (sh && exists(sh.manifest)) {
   const mf = JSON.parse(read(sh.manifest));
-  const base = '/' + CONFIG.repoName + '/';
+  // 正しい値は「どこで配信するか」で変わる。
+  // CNAME があれば独自ドメインの直下に置かれ、PWA は /pwa/ に入る。
+  // manifest 自身も /pwa/ にあるので、相対（"./"）で書けば配信場所に追随する。
+  // ⚠️ 旧構成（gigayama.github.io/リポジトリ名/pwa/）のリポジトリ名の絶対パスを
+  //    残すと、scope がページの URL を含まなくなって manifest ごと無視され、
+  //    PWA としてインストールできなくなる。実際にその状態で残っていた。
+  const hasCname = exists('CNAME');
+  const base = hasCname ? './' : '/' + CONFIG.repoName + '/';
   for (const key of ['id', 'start_url', 'scope']) {
-    check('E1', `manifest の ${key} がリポジトリ名の絶対パスになっている`,
+    check('E1', `manifest の ${key} が配信場所（${base}）と合っている`,
       typeof mf[key] === 'string' && mf[key].startsWith(base),
       String(mf[key]));
   }

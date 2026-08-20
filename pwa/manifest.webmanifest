@@ -5,9 +5,9 @@
   "lang": "ja",
   "dir": "ltr",
 
-  "id": "/Online-Publisher-pro/pwa/index.html",
-  "start_url": "/Online-Publisher-pro/pwa/index.html?source=pwa",
-  "scope": "/Online-Publisher-pro/pwa/",
+  "id": "./index.html",
+  "start_url": "./index.html?source=pwa",
+  "scope": "./",
 
   "display": "standalone",
   "display_override": ["standalone", "fullscreen", "minimal-ui"],
