@@ -526,9 +526,13 @@ function createUniqueClassCode_() {
   try {
     const props = PropertiesService.getScriptProperties();
     for (let attempt = 0; attempt < 20; attempt++) {
+      // Math.random() は予測できる（推測されると他学級のコードに当たりをつけられる）。
+      // townmap の Registry.gs と同じく、UUID＋時刻の SHA-256 から文字を取る。
       let code = '';
+      const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,
+        Utilities.getUuid() + Date.now() + attempt);
       for (let i = 0; i < 8; i++) {
-        code += CLASS_CODE_CHARS.charAt(Math.floor(Math.random() * CLASS_CODE_CHARS.length));
+        code += CLASS_CODE_CHARS.charAt(((bytes[i] + 256) % 256) % CLASS_CODE_CHARS.length);
       }
       if (!props.getProperty(TENANT_REGISTRY_PREFIX + code)) {
         props.setProperty(TENANT_REGISTRY_PREFIX + code, JSON.stringify({ pending: true }));
