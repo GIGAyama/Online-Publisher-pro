@@ -368,4 +368,4 @@ MIT License. 全文は [LICENSE](LICENSE) を参照してください。
 
 ## ✍️ 作者
 
-GIGA山 ([note](https://note.com/cute_borage86))
+GIGA山 ([GIGA school](https://giga-school.com))
