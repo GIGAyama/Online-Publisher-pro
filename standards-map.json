@@ -11,6 +11,10 @@
     {
       "canonical": "sw/build-sw-static.mjs",
       "local": "tools/build-sw.mjs"
+    },
+    {
+      "canonical": "lib/check-secrets.mjs",
+      "local": "tools/check-secrets.mjs"
     }
   ]
 }
