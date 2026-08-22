@@ -1,0 +1,7 @@
+{
+  "//": "PWA シェルは pwa/ に置いている。先読み一覧の定数名は PRECACHE_URLS。",
+  "swPath": "pwa/sw.js",
+  "baseDir": "pwa",
+  "versionConst": "APP_VERSION",
+  "shellConst": "PRECACHE_URLS"
+}

@@ -18,7 +18,11 @@
  *   児童の書きかけ（monogatari_maker_pro_autosave など）に触れない。
  */
 const CACHE_PREFIX  = 'opp-shell-';
-const APP_VERSION   = 'v6';   // ← リリースごとに必ず上げる
+// ⚠️ この行は手で直さない。tools/build-sw.mjs が PRECACHE_URLS の中身から書き換える。
+//    手書きだったころは上げるのが人の仕事で、2026-08-21 に12リポジトリで同時に
+//    上げ忘れる事故が起きた。上げ忘れると古いシェルのキャッシュが掃除されず、
+//    直した画面が児童の端末に届かない。
+const APP_VERSION = 'v25d544ec'; /* __APP_VERSION__ */
 const CACHE_STATIC  = CACHE_PREFIX + 'static-' + APP_VERSION;
 const CACHE_RUNTIME = CACHE_PREFIX + 'runtime-v1';
 

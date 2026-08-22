@@ -21,6 +21,9 @@ jobs:
       - name: 品質ゲート
         run: npm run check
 
+      - name: SW の版がずれていないか
+        run: node tools/build-sw.mjs --check
+
   # 正本（GIGAyama.github.io/standards/）からコピーしたファイルが、
   # 正本の更新に取り残されていないかを見る。standards-map.json が対応表。
   drift:
