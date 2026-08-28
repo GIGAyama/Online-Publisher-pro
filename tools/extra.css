@@ -1,0 +1,8 @@
+/* Tailwind の出力のあとに置く、このリポジトリだけのスタイル。
+
+   ⚠️ このアプリの見た目の大半は src/app.jsx の GLOBAL_STYLES にあり、
+      React が <style>{GLOBAL_STYLES}</style> として描いている。
+      ここに写さないこと（2 か所に同じものを持つことになる）。
+
+   アイコンは icons.html（生成物）が .bi / .bi-<名前> として配る。
+   使っている分の SVG を mask-image にしたもので、webfont は読まない。 */

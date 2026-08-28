@@ -1,0 +1,2379 @@
+// ==========================================================================
+// app.jsx — 画面の原本。ここを直す。
+//
+// 以前は index.html の <script type="text/babel"> に直接書いてあり、
+// ブラウザが開くたびに @babel/standalone（約3MB）で翻訳し直していた。
+// いまは npm run build がビルド時に 1 回だけ翻訳して app.html を作る。
+//
+// ⚠️ 生成物（app.html）を直さないこと。次のビルドで消える。
+// ==========================================================================
+const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+const APP_CONTEXT = window.__APP_CONTEXT__ || { status: 'error', message: 'アプリ情報を取得できませんでした。' };
+const TENANT_STORAGE_SUFFIX = APP_CONTEXT.classCode ? `_${APP_CONTEXT.classCode}` : '';
+const SETTINGS_KEY = 'monogatari_maker_pro_settings';
+const AUTOSAVE_KEY = 'monogatari_maker_pro_autosave' + TENANT_STORAGE_SUFFIX;
+const OFFLINE_QUEUE_KEY = 'monogatari_maker_pro_offline_queue' + TENANT_STORAGE_SUFFIX;
+
+const GLOBAL_STYLES = `
+  :root {
+    /* ノッチ・ホームバー・丸角の逃げ幅。対応していない端末では 0px になる */
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
+    /* 画面幅に応じて伸縮する文字サイズ。メディアクエリを何段も書かなくて済む */
+    --fs-body:  clamp(15px, 1.6vw + 10px, 18px);
+    --fs-lead:  clamp(18px, 2.2vw + 12px, 24px);
+    --fs-title: clamp(22px, 3.2vw + 14px, 40px);
+  }
+
+  @media print {
+    body > #root > div > .no-print { display: none !important; }
+    body > #root > div > .print-only { display: block !important; position: absolute; left: 0; top: 0; width: 100%; background: white; z-index: 9999; }
+    @page { size: A4 landscape; margin: 0; }
+    /* これが無いと、原稿用紙のマス目と添削の赤線が「背景」と見なされて印刷されない */
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    /* 1枚の作品や表の途中でページが割れないようにする */
+    .print-only > div, table, tr { break-inside: avoid; }
+    .page-break { break-before: page; }
+    a[href]::after { content: ""; }
+  }
+  @media screen { .print-only { display: none !important; } }
+  .vertical-rl { writing-mode: vertical-rl; text-orientation: mixed; }
+  .hide-scrollbar::-webkit-scrollbar { display: none; }
+  .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+  @keyframes modalFadeIn { 0% { opacity: 0; transform: translateY(20px); } 100% { opacity: 1; transform: translateY(0); } }
+  .animate-modal { animation: modalFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+  @keyframes toastFadeIn { 0% { opacity: 0; transform: translate(-50%, 20px); } 100% { opacity: 1; transform: translate(-50%, 0); } }
+  .animate-toast { animation: toastFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  html, body, #root { height: 100%; }
+  body { font-size: var(--fs-body); overflow-x: hidden; }
+  /* --vvh は「いま実際に見えている高さ」。iOS Safari はソフトキーボードが出ても
+     100dvh が縮まないため、原稿用紙の入力欄がキーボードの下に隠れてしまう。
+     JS 側（visualViewport）で実測値を流し込み、無い環境では 100dvh に戻す。 */
+  .app-shell { height: 100vh; }
+  .app-shell { height: 100dvh; }
+  .app-shell { height: var(--vvh, 100dvh); }
+  /* viewport-fit=cover にしているので、横向き時のノッチ側の欠けを自分で避ける */
+  .app-shell { padding-left: var(--safe-l); padding-right: var(--safe-r); }
+  @media print { .app-shell { height: auto; overflow: visible; padding: 0; } }
+
+  * { -webkit-tap-highlight-color: transparent; }
+  /* 低学年の指でも押せる下限。アイコンだけのボタンが 38px 程度だった */
+  button, [role="button"] {
+    min-width: 44px; min-height: 44px;
+    touch-action: manipulation;   /* ダブルタップズームの300ms遅延を消す */
+  }
+  /* 引っぱり更新やスクロール連鎖の暴発を防ぐ */
+  .overflow-auto, .overflow-y-auto, .overflow-x-auto, .hide-scrollbar { overscroll-behavior: contain; }
+  /* 手書き・なぞり選択の最中に画面が動かないようにする */
+  .vertical-rl { overscroll-behavior: contain; }
+  :focus-visible { outline: 3px solid #c2410c; outline-offset: 2px; }
+  @media (forced-colors: active) {
+    button, [role="button"] { border: 2px solid ButtonText; }
+  }
+
+  /* 感覚過敏の児童に配慮し、端末側で「視差効果を減らす」設定なら動きを止める */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* iOS Safariのフォーカス時自動ズームを防ぐため、モバイルではフォーム部品を16px以上にする */
+  @media (max-width: 640px) {
+    input[type="text"], input[type="password"], input[type="number"], input[type="date"], input[type="search"], select, textarea { font-size: 16px; }
+  }
+
+  /* 大型提示装置（電子黒板）では余白を活かして主役を大きく見せる */
+  @media (min-width: 1600px) { :root { --fs-title: clamp(28px, 3.2vw + 14px, 56px); } }
+`;
+
+const Rb = ({ t, r }) => (
+  <ruby className="relative inline-block text-center align-baseline leading-none">
+    {t}<rt className="absolute bottom-full left-1/2 -translate-x-1/2 whitespace-nowrap text-[0.6em] text-slate-500 pointer-events-none mb-[0.1em] font-medium tracking-normal" style={{ letterSpacing: 'normal' }}>{r}</rt>
+  </ruby>
+);
+
+const runGAS = async (funcName, ...args) => {
+  let retryCount = 0; const maxRetries = 3;
+  const tokenArgIndexes = {
+    uploadIllustration: 2,
+    saveOrSubmitDraft: 2,
+    getDraftList: 1,
+    addGalleryComment: 2,
+    setGeminiApiKey: 1,
+    analyzeEssayWithGemini: 3
+  };
+  while (retryCount < maxRetries) {
+    try {
+      return await new Promise((resolve, reject) => {
+        if (typeof google === 'undefined' || typeof google.script === 'undefined') { reject(new Error("Google Apps Script環境ではありません。")); return; }
+        const callArgs = args.slice();
+        const tokenIndex = tokenArgIndexes[funcName];
+        if (typeof tokenIndex !== 'number') { reject(new Error("許可されていないサーバー機能です。")); return; }
+        while (callArgs.length < tokenIndex) callArgs.push(null);
+        callArgs.splice(tokenIndex, 0, APP_CONTEXT.token);
+        google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[funcName](...callArgs);
+      });
+    } catch (e) {
+      if (e.message && e.message.includes("Google Apps Script環境ではありません")) throw e; 
+      retryCount++; if (retryCount >= maxRetries) throw e;
+      await new Promise(r => setTimeout(r, 1000 * retryCount)); 
+    }
+  }
+};
+
+const getDriveImageUrl = (url) => {
+  if (!url) return '';
+  const match = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (match && url.includes('drive.google.com')) return `https://lh3.googleusercontent.com/d/${match[1]}`;
+  return url;
+};
+
+const resizeImage = (file, maxWidth = 800) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width; let height = img.height;
+        if (width > maxWidth) { height = Math.round(height * maxWidth / width); width = maxWidth; }
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, width, height); ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.8));
+      };
+      img.onerror = reject; img.src = e.target.result;
+    };
+    reader.onerror = reject; reader.readAsDataURL(file);
+  });
+};
+
+const getSafeArray = (arr) => {
+  if (Array.isArray(arr)) return arr;
+  if (typeof arr === 'string') { try { const parsed = JSON.parse(arr); if (Array.isArray(parsed)) return parsed; } catch(e) {} }
+  return [];
+};
+
+const parseCorrectionData = (raw, fallbackText) => {
+    let parsed = raw;
+    while (typeof parsed === 'string') { try { parsed = JSON.parse(parsed); } catch(e) { break; } }
+    if (!parsed) return { baseText: fallbackText || '', items: [] };
+    if (Array.isArray(parsed)) return { baseText: fallbackText || '', items: parsed };
+    if (parsed.items && Array.isArray(parsed.items)) return { baseText: parsed.baseText || fallbackText || '', items: parsed.items };
+    return { baseText: fallbackText || '', items: [] };
+};
+
+const mapIndex = (index, diffs) => {
+    if (typeof index !== 'number') return 0;
+    let oldIndex = 0; let newIndex = 0;
+    for (let i = 0; i < diffs.length; i++) {
+        const [type, text] = diffs[i]; const len = text.length;
+        if (type === 0) { if (oldIndex + len > index) return newIndex + (index - oldIndex); oldIndex += len; newIndex += len; } 
+        else if (type === -1) { if (oldIndex + len > index) return newIndex; oldIndex += len; } 
+        else if (type === 1) { newIndex += len; }
+    }
+    return newIndex;
+};
+
+const getAdjustedCorrections = (baseText, currentContent, items) => {
+    const safeItems = Array.isArray(items) ? items : [];
+    if (!baseText || safeItems.length === 0) return safeItems;
+    if (typeof window.diff_match_patch !== 'function') return safeItems;
+    try {
+        const dmp = new window.diff_match_patch();
+        const diffs = dmp.diff_main(baseText, currentContent || '');
+        dmp.diff_cleanupSemantic(diffs);
+        return safeItems.map(item => {
+            if (typeof item.start !== 'number' || typeof item.end !== 'number') return item;
+            const newStart = mapIndex(item.start, diffs);
+            const newEnd = mapIndex(item.end, diffs);
+            if (Number.isNaN(newStart) || Number.isNaN(newEnd)) return item; 
+            return { ...item, start: newStart, end: Math.max(newStart, newEnd) };
+        });
+    } catch (error) { return safeItems; }
+};
+
+const getDiffElements = (oldText, newText) => {
+    if (!oldText || !newText || typeof window.diff_match_patch !== 'function') {
+        return (newText || '').split('\n').map((line, i) => <React.Fragment key={i}>{line}<br/></React.Fragment>);
+    }
+    try {
+        const dmp = new window.diff_match_patch();
+        const diffs = dmp.diff_main(oldText, newText);
+        dmp.diff_cleanupSemantic(diffs);
+        let elements = []; let key = 0;
+        diffs.forEach((diff) => {
+            const [op, text] = diff;
+            const lines = text.split('\n');
+            lines.forEach((line, index) => {
+                if (line) {
+                    if (op === 1) elements.push(<span key={key++} className="bg-emerald-200/80 text-emerald-900 rounded-sm px-0.5 mx-[1px] font-bold shadow-sm">{line}</span>);
+                    else if (op === -1) elements.push(<del key={key++} className="bg-rose-200/80 text-rose-900 rounded-sm px-0.5 mx-[1px] line-through opacity-60 shadow-sm">{line}</del>);
+                    else elements.push(<span key={key++}>{line}</span>);
+                }
+                if (index < lines.length - 1) elements.push(<br key={key++} />);
+            });
+        });
+        return elements;
+    } catch (e) { return newText; }
+};
+
+const parseToPages = (title, className, name, text, settings, includeHeader = true, safeIlls = [], isBook = false) => {
+  const { charsPerLine: defaultCharsPerLine, linesPerPage, kinsokuMode } = settings;
+  const pages = []; let currentPageLines = [];
+  let currentBookPageNum = isBook ? 2 : 1;
+
+  const getCharsPerLineForCurrentPage = () => {
+    if (!isBook) return defaultCharsPerLine;
+    const pageIlls = safeIlls.filter(ill => parseInt(ill.page) === currentBookPageNum);
+    if (pageIlls.length > 0) {
+        // 画像がある場合は1行の文字数を減らして画像下のスペースに収める (約60%の文字数)
+        return Math.floor(defaultCharsPerLine * 0.6); 
+    }
+    return defaultCharsPerLine;
+  };
+
+  let currentCharsPerLine = getCharsPerLineForCurrentPage();
+
+  function pushLine(l) { 
+    currentPageLines.push(l); 
+    if (currentPageLines.length >= linesPerPage) {
+      pages.push(currentPageLines.splice(0, linesPerPage)); 
+      currentBookPageNum++;
+      currentCharsPerLine = getCharsPerLineForCurrentPage();
+    }
+  }
+
+  if (includeHeader) {
+    const titleParas = (title || '').split('\n');
+    if (titleParas.length === 1 && titleParas[0] === '') pushLine(Array(currentCharsPerLine).fill({char: '', idx: null}));
+    else {
+      titleParas.forEach(p => {
+        let line = Array(currentCharsPerLine).fill({char: '', idx: null}); let cursor = 3; 
+        if (p === '') { pushLine(line); return; }
+        p.split('').forEach(c => { if (cursor >= currentCharsPerLine) { pushLine(line); line = Array(currentCharsPerLine).fill({char: '', idx: null}); cursor = 3; } line[cursor] = {char: c, idx: null}; cursor++; });
+        pushLine(line);
+      });
+    }
+    const nameLine = Array(currentCharsPerLine).fill({char: '', idx: null});
+    const nameStr = `${className || ''} ${name || ''}`.trim();
+    let startIdx = Math.max(0, currentCharsPerLine - nameStr.length - 1); 
+    nameStr.split('').forEach((c, i) => { if (startIdx + i < currentCharsPerLine) nameLine[startIdx + i] = {char: c, idx: null}; });
+    pushLine(nameLine); pushLine(Array(currentCharsPerLine).fill({char: '', idx: null})); 
+  }
+
+  const noStart = ['、', '。', '」', '』', '）', 'っ', 'ゃ', 'ゅ', 'ょ', 'ッ', 'ャ', 'ュ', 'ョ', 'ー', ',', '.', ']', '}', '>', 'ぁ', 'ぃ', 'ぅ', 'ぇ', 'ぉ', 'ァ', 'ィ', 'ゥ', 'ェ', 'ォ', 'ヮ', 'ヵ', 'ヶ', '・', '？', '！', '‼', '⁇', '々'];
+  const noEnd = ['「', '『', '（', '(', '[', '{', '<'];
+
+  let charGlobalIndex = 0;
+  (text || '').split('\n').forEach(p => {
+    if (p === '') { pushLine(Array(currentCharsPerLine).fill({char: '', idx: null})); charGlobalIndex += 1; return; }
+    let chars = p.split(''); let line = []; let i = 0;
+    while (i < chars.length) {
+      line.push({char: chars[i], idx: charGlobalIndex + i}); i++;
+      if (line.length >= currentCharsPerLine) {
+        if (kinsokuMode === 'burasagari') {
+          let hangCount = 0;
+          while (i < chars.length && noStart.includes(chars[i]) && hangCount < 2) { line.push({char: chars[i], idx: charGlobalIndex + i}); i++; hangCount++; }
+        } else {
+          if (noEnd.includes(line[line.length - 1].char)) { const kicked = line.pop(); pushLine(line); line = [kicked]; continue; }
+          if (i < chars.length && noStart.includes(chars[i])) { const kicked = line.pop(); pushLine(line); line = [kicked]; continue; }
+        }
+        pushLine(line); line = [];
+      }
+    }
+    if (line.length > 0) { while (line.length < currentCharsPerLine) line.push({char: '', idx: null}); pushLine(line); }
+    charGlobalIndex += chars.length + 1;
+  });
+
+  if (currentPageLines.length > 0) { while (currentPageLines.length < linesPerPage) currentPageLines.push(Array(currentCharsPerLine).fill({char: '', idx: null})); pages.push(currentPageLines); }
+  if (pages.length === 0) pages.push(Array(linesPerPage).fill(Array(currentCharsPerLine).fill({char: '', idx: null})));
+  return pages;
+};
+
+// モーダルが開いている間、Tab を中に閉じ込める。
+// これが無いと、背面のボタンにフォーカスが抜けてキーボードだけの児童が迷子になる。
+const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const useFocusTrap = (isOpen, containerRef, onClose, autoFocus = true) => {
+  // onClose は呼び出し側でインラインの関数として渡されるため、毎回別物になる。
+  // これを useEffect の依存に入れると、再描画のたびに「閉じたときの処理」が走り、
+  // 入力中にフォーカスが奪われてしまう。ref に逃がして依存から外す。
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; });
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const previouslyFocused = document.activeElement;
+
+    // 開いたらモーダルの中にフォーカスを入れる。
+    // 入れておかないと、最初の Tab が背面の要素に飛んでしまう。
+    const timer = setTimeout(() => {
+      const box = containerRef.current;
+      if (!box || box.contains(document.activeElement)) return;
+      const items = Array.from(box.querySelectorAll(FOCUSABLE)).filter(el => el.offsetParent !== null);
+      if (autoFocus && items.length) items[0].focus();
+    }, 0);
+
+    const handleKey = (e) => {
+      if (e.key === 'Escape') { onCloseRef.current && onCloseRef.current(); return; }
+      if (e.key !== 'Tab') return;
+      const box = containerRef.current;
+      if (!box) return;
+      const items = Array.from(box.querySelectorAll(FOCUSABLE)).filter(el => el.offsetParent !== null);
+      if (items.length === 0) return;
+      const first = items[0]; const last = items[items.length - 1];
+      if (!box.contains(document.activeElement)) { e.preventDefault(); first.focus(); return; }
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('keydown', handleKey);
+      // 閉じたら元いた場所にフォーカスを戻す。
+      // ただし「その場で」戻すと、Enter で閉じたときに続く keyup が
+      // 戻り先のボタンに当たって、そのボタンが押されたことになる
+      // （ログイン直後に先生用ログイン画面が開き直る不具合になっていた）。
+      // いま処理中のキー操作が終わってから戻す。
+      setTimeout(() => {
+        if (previouslyFocused && document.contains(previouslyFocused)
+            && typeof previouslyFocused.focus === 'function') previouslyFocused.focus();
+      }, 0);
+    };
+  }, [isOpen, containerRef, autoFocus]);
+};
+
+const Modal = ({ isOpen, onClose, title, children, maxWidth = 'max-w-2xl' }) => {
+  const boxRef = useRef(null);
+  const titleId = useMemo(() => 'modal-title-' + Math.random().toString(36).slice(2), []);
+  useFocusTrap(isOpen, boxRef, onClose);
+
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-2 sm:p-4 no-print">
+      <div ref={boxRef} role="dialog" aria-modal="true" aria-labelledby={titleId} className={`bg-white rounded-2xl shadow-2xl w-full ${maxWidth} flex flex-col max-h-[95vh] overflow-hidden transform transition-all animate-modal`}>
+        <div className="flex justify-between items-center p-4 sm:p-5 border-b border-slate-100 bg-slate-50/50 shrink-0">
+          <h3 id={titleId} className="font-bold text-lg text-slate-800 pt-1">{title}</h3>
+          <button onClick={onClose} aria-label="閉じる" className="p-1.5 hover:bg-slate-200 rounded-full text-slate-500 transition-all active:scale-90"><i className="bi bi-x-lg text-[20px]" aria-hidden="true"></i></button>
+        </div>
+        <div className="flex-1 overflow-auto p-4 sm:p-5">{children}</div>
+      </div>
+    </div>
+  );
+};
+
+const ToastMessage = ({ isVisible, message, type, onClose }) => {
+  useEffect(() => { if (isVisible) { const t = setTimeout(onClose, 4000); return () => clearTimeout(t); } }, [isVisible, onClose]);
+  if (!isVisible) return null;
+  const bg = type === 'success' ? 'bg-slate-800' : type === 'error' ? 'bg-rose-600' : 'bg-blue-600';
+  const iconColor = type === 'success' ? 'text-emerald-400' : 'text-white';
+  return (
+    // 保存完了・提出などの状態変化を読み上げソフトにも伝える。
+    // エラーは alert（すぐ読む）、それ以外は status（区切りのよいところで読む）。
+    <div role={type === 'error' ? 'alert' : 'status'} aria-live={type === 'error' ? 'assertive' : 'polite'}
+         style={{ bottom: 'calc(2.5rem + var(--safe-b))' }}
+         className={`fixed left-1/2 z-[150] px-6 pt-4 pb-3 rounded-2xl shadow-2xl text-white font-bold flex items-center gap-3 animate-toast ${bg} no-print`}>
+      {type === 'error' ? <i className={`bi bi-exclamation-triangle-fill text-[20px] ${iconColor}`} aria-hidden="true"></i> : <i className={`bi bi-check-circle-fill text-[20px] ${iconColor}`} aria-hidden="true"></i>}
+      <span className="tracking-wide whitespace-pre-line leading-relaxed">{message}</span>
+    </div>
+  );
+};
+
+const LoadingOverlay = ({ isVisible, text }) => {
+  if (!isVisible) return null;
+  return (
+    <div role="status" aria-live="polite" className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-white/70 backdrop-blur-sm no-print transition-all">
+      <div className="relative flex flex-col items-center">
+        <div className="animate-bounce z-10 bg-gradient-to-br from-orange-400 to-orange-500 text-white p-4 rounded-2xl shadow-lg border border-orange-300/50">
+          <i className="bi bi-book text-[40px]" aria-hidden="true"></i>
+        </div>
+        <div className="w-16 h-3 bg-slate-300/60 rounded-[100%] mt-2 animate-pulse"></div>
+      </div>
+      <div className="mt-6 font-bold text-slate-700 bg-white/90 px-6 pt-3 pb-2 rounded-full shadow-sm border border-slate-100 tracking-wide whitespace-pre-line text-center">{text || <><Rb t="処理中" r="しょりちゅう"/>...</>}</div>
+    </div>
+  );
+};
+
+// --- 完全なスクロール同期と外部からの制御をサポートしたScalableWrapper ---
+const ScalableWrapper = ({ children, containerRefExternal }) => {
+  const wrapperRef = useRef(null);
+  const containerRef = useRef(null); 
+  const contentRef = useRef(null);
+  const [scale, setScale] = useState(1); const [dims, setDims] = useState({ w: 0, h: 0 });
+
+  useEffect(() => {
+    if (containerRefExternal) {
+       containerRefExternal.current = containerRef.current;
+    }
+  }, [containerRefExternal, containerRef.current]);
+
+  useEffect(() => {
+    let reqId;
+    const updateScale = () => {
+      if (!containerRef.current || !contentRef.current) return;
+      const availableH = containerRef.current.clientHeight - 60;
+      const firstChild = contentRef.current.firstElementChild;
+      if (!firstChild) return;
+      const originalW = firstChild.offsetWidth; const originalH = firstChild.offsetHeight;
+
+      if (originalH > 10 && availableH > 10) {
+        let s = availableH / originalH;
+        if (s > 2.5) s = 2.5; if (s < 0.1) s = 0.1;
+        
+        setDims(prev => {
+          if (prev.w !== originalW || prev.h !== originalH) return { w: originalW, h: originalH };
+          return prev;
+        });
+        setScale(s);
+      }
+    };
+
+    const observer = new ResizeObserver(() => { reqId = requestAnimationFrame(updateScale); });
+    if (containerRef.current) observer.observe(containerRef.current);
+    if (contentRef.current && contentRef.current.firstElementChild) observer.observe(contentRef.current.firstElementChild);
+
+    updateScale(); setTimeout(updateScale, 100);
+    return () => { observer.disconnect(); cancelAnimationFrame(reqId); };
+  }, [children]);
+
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    const container = containerRef.current;
+    if (!wrapper || !container) return;
+
+    const handleWheel = (e) => {
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+        e.preventDefault(); 
+        // 縦スクロールを横スクロールに変換
+        if (typeof container.scrollBy === 'function') {
+          container.scrollBy({ left: -e.deltaY, behavior: 'auto' });
+        } else {
+          container.scrollLeft -= e.deltaY;
+        }
+      }
+    };
+
+    wrapper.addEventListener('wheel', handleWheel, { passive: false });
+    return () => wrapper.removeEventListener('wheel', handleWheel);
+  }, []);
+
+  return (
+    <div ref={wrapperRef} className="absolute inset-0 bg-slate-100/50 rounded-2xl overflow-hidden border border-slate-200">
+      <div ref={containerRef} className="w-full h-full overflow-auto relative hide-scrollbar p-3 sm:p-8" style={{ direction: 'rtl' }}>
+        <div style={{ direction: 'ltr' }} className="flex-shrink-0 w-max h-max">
+          <div style={{ width: dims.w > 0 ? dims.w * scale : '100%', height: dims.h > 0 ? dims.h * scale : '100%', minHeight: '100%', position: 'relative' }} className="transition-all duration-300 ease-out">
+            <div ref={contentRef} style={{ transform: `scale(${scale})`, transformOrigin: 'top right', position: 'absolute', top: 0, right: 0 }} className="shadow-2xl rounded-sm bg-white inline-block">
+              {children}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const DiffViewer = ({ draft }) => {
+    const parsedCorrections = parseCorrectionData(draft?.correction, draft?.content);
+    const oldText = parsedCorrections.baseText || '';
+    const newText = draft?.content || '';
+    const textRef = useRef(null);
+    const [paperWidth, setPaperWidth] = useState(460);
+
+    /* 縦書きなので、本文が長いと行が左へ伸びていく。
+       用紙の幅を460pxに固定していたころは、はみ出した本文が切り取られ、
+       長い作文では差分の書き出しと書き足した部分が読めなかった。
+       描画したあとに本文の実寸をはかって、用紙をその幅に合わせる。 */
+    useEffect(() => {
+        const el = textRef.current;
+        if (!el) return;
+        // フォントの読み込みが終わると行の伸びかたが変わるので、変化を見張って測りなおす
+        const measure = () => {
+            const needed = Math.max(460, el.scrollWidth + 50); // 左右の余白ぶん
+            setPaperWidth((prev) => (Math.abs(prev - needed) > 1 ? needed : prev));
+        };
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, [oldText, newText]);
+
+    return (
+        <div className="flex flex-row-reverse p-10 gap-10 bg-slate-100 w-max">
+            <div style={{ width: `${paperWidth}px` }} className="relative h-[580px] bg-white shadow-xl border border-slate-200/60 py-8 px-6 flex flex-col font-serif">
+                <div className="flex-1 min-h-0 flex justify-center">
+                    <div ref={textRef} className="h-full vertical-rl text-[14px] text-slate-800 tracking-wide text-justify" style={{ lineHeight: '2.0', wordBreak: 'break-all' }}>
+                        {getDiffElements(oldText, newText)}
+                    </div>
+                </div>
+                <div className="absolute bottom-5 w-full left-0 text-center text-sm text-slate-500 font-sans tracking-widest">- 差分 -</div>
+            </div>
+        </div>
+    );
+};
+
+// --- パフォーマンスを極限まで最適化した原稿用紙コンポーネント ---
+// React.memo を用いて、変更があった文字・行だけを再描画する
+const CharCell = React.memo(({ charObj, isSelected, showCorrection, isResolved, onClickCorrection, onMouseDown, onMouseEnter, cellSize, isLineEnd, overflowText }) => {
+    const idx = charObj.idx;
+    let bgClass = ''; let afterElement = null;
+    if (isSelected) bgClass = 'bg-yellow-200/60';
+    else if (showCorrection) {
+        bgClass = 'bg-rose-50 cursor-pointer hover:bg-rose-100 transition-colors';
+        const color = isResolved ? 'bg-emerald-500' : 'bg-rose-500';
+        afterElement = <div className={`absolute top-0 right-[2px] bottom-0 w-[3px] rounded-full ${color} pointer-events-none`}></div>;
+    }
+
+    return (
+        <div className={`${cellSize} flex items-center justify-center border-b border-green-700/30 last:border-b-green-700/70 text-slate-800 vertical-rl leading-none relative transition-colors ${bgClass}`}
+             data-idx={idx !== null ? idx : undefined}
+             onMouseDown={(e) => { if (idx !== null && onMouseDown) onMouseDown(idx, e); }}
+             onMouseEnter={() => { if (idx !== null && onMouseEnter) onMouseEnter(idx); }} 
+             onClick={(e) => { if (showCorrection && onClickCorrection) { e.stopPropagation(); onClickCorrection(); } }}>
+            <span style={{ fontSize: '14pt' }}>{charObj.char}</span>
+            {afterElement}
+            {isLineEnd && overflowText && (
+                <div className="absolute top-[100%] left-1/2 -translate-x-1/2 whitespace-nowrap vertical-rl text-[0.7em] mt-[0.1em] pointer-events-none">{overflowText}</div>
+            )}
+        </div>
+    );
+}, (prev, next) => {
+    return prev.charObj.char === next.charObj.char && prev.charObj.idx === next.charObj.idx && prev.isSelected === next.isSelected && prev.showCorrection === next.showCorrection && prev.isResolved === next.isResolved && prev.isLineEnd === next.isLineEnd && prev.overflowText === next.overflowText && prev.cellSize === next.cellSize;
+});
+
+const GenkoPaper = ({ draft, settings, corrections, isTeacher, dragState, onCharMouseDown, onCharMouseEnter, onPaperMouseUp, onClickCorrection }) => {
+  const pages = useMemo(() => parseToPages(draft?.title, draft?.class, draft?.name, draft?.content, settings, true), [draft, settings]);
+  const { charsPerLine } = settings;
+  const isHigh = charsPerLine === 20;
+  const cellSize = isHigh ? 'w-[2.4rem] h-[2.4rem] text-[1.4rem]' : 'w-[3.0rem] h-[3.0rem] text-[1.7rem]';
+  const safeCorrections = getSafeArray(corrections);
+  const paperRef = useRef(null);
+
+  // タブレット等のタッチ端末では「長押し→なぞる」で添削範囲を選択できるようにする
+  // （短いタップ・スワイプは通常どおりスクロールやクリックとして扱う）
+  useEffect(() => {
+    if (!isTeacher) return;
+    const el = paperRef.current;
+    if (!el) return;
+
+    let longPressTimer = null;
+    let selecting = false;
+    let startPos = null;
+
+    const cellIdxFromTouch = (touch) => {
+      const target = document.elementFromPoint(touch.clientX, touch.clientY);
+      const cell = target && target.closest ? target.closest('[data-idx]') : null;
+      if (!cell) return null;
+      const idx = parseInt(cell.dataset.idx, 10);
+      return Number.isNaN(idx) ? null : idx;
+    };
+
+    const cancelLongPress = () => { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } };
+
+    const handleTouchStart = (e) => {
+      if (e.touches.length !== 1) { cancelLongPress(); return; }
+      const touch = e.touches[0];
+      const idx = cellIdxFromTouch(touch);
+      if (idx === null) return;
+      startPos = { x: touch.clientX, y: touch.clientY };
+      cancelLongPress();
+      longPressTimer = setTimeout(() => {
+        selecting = true;
+        if (navigator.vibrate) navigator.vibrate(15);
+        if (onCharMouseDown) onCharMouseDown(idx, e);
+      }, 350);
+    };
+
+    const handleTouchMove = (e) => {
+      const touch = e.touches[0];
+      if (selecting) {
+        e.preventDefault(); // 選択中はスクロールさせない
+        const idx = cellIdxFromTouch(touch);
+        if (idx !== null && onCharMouseEnter) onCharMouseEnter(idx);
+        return;
+      }
+      // 長押し前に大きく動いたらスクロール操作とみなしてキャンセル
+      if (startPos && (Math.abs(touch.clientX - startPos.x) > 10 || Math.abs(touch.clientY - startPos.y) > 10)) {
+        cancelLongPress();
+      }
+    };
+
+    const handleTouchEnd = (e) => {
+      cancelLongPress();
+      if (selecting) {
+        selecting = false;
+        e.preventDefault(); // 合成マウスイベントによる二重処理を防ぐ
+        if (onPaperMouseUp) onPaperMouseUp();
+      }
+      startPos = null;
+    };
+
+    el.addEventListener('touchstart', handleTouchStart, { passive: true });
+    el.addEventListener('touchmove', handleTouchMove, { passive: false });
+    el.addEventListener('touchend', handleTouchEnd, { passive: false });
+    el.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+    return () => {
+      cancelLongPress();
+      el.removeEventListener('touchstart', handleTouchStart);
+      el.removeEventListener('touchmove', handleTouchMove);
+      el.removeEventListener('touchend', handleTouchEnd);
+      el.removeEventListener('touchcancel', handleTouchEnd);
+    };
+  }, [isTeacher, onCharMouseDown, onCharMouseEnter, onPaperMouseUp]);
+
+  return (
+    <div ref={paperRef} className="flex flex-row-reverse p-10 gap-8 bg-[#fffaf0] font-serif w-max select-none" onMouseUp={onPaperMouseUp} onMouseLeave={onPaperMouseUp}>
+      {pages.map((page, pIdx) => (
+        <div key={pIdx} className="flex flex-row-reverse border border-green-700/70 bg-white shadow-sm">
+          {page.map((line, lIdx) => (
+            <div key={lIdx} className="flex flex-col border-l border-green-700/30 first:border-r first:border-r-green-700/70 last:border-l-green-700/70 relative">
+              {line.slice(0, charsPerLine).map((charObj, cIdx) => {
+                const idx = charObj.idx; let isSelected = false;
+                if (dragState && dragState.isDragging && idx !== null && dragState.start !== null && dragState.end !== null) {
+                    const s = Math.min(dragState.start, dragState.end); const e = Math.max(dragState.start, dragState.end);
+                    if (idx >= s && idx <= e) isSelected = true;
+                }
+                let correction = null;
+                if (idx !== null && safeCorrections.length > 0) correction = safeCorrections.find(c => idx >= c.start && idx < c.end);
+                const isResolved = correction?.status === 'resolved';
+                const showCorrection = correction && (isTeacher || !isResolved);
+                const isLineEnd = cIdx === charsPerLine - 1;
+                const overflowText = isLineEnd && line.length > charsPerLine ? line.slice(charsPerLine).map(c => c.char).join('') : '';
+
+                return <CharCell key={cIdx} charObj={charObj} isSelected={isSelected} showCorrection={showCorrection} isResolved={isResolved} cellSize={cellSize} isLineEnd={isLineEnd} overflowText={overflowText} onClickCorrection={correction ? () => onClickCorrection(correction) : undefined} onMouseDown={onCharMouseDown} onMouseEnter={onCharMouseEnter} />;
+              })}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const IllustrationImage = ({ ill }) => {
+  const size = ill.size || 100; const shape = ill.shape || 'rectangle';
+  let shapeClass = 'object-contain'; let inlineStyle = { maxWidth: `${size}%`, maxHeight: `${size}%` };
+  switch (shape) {
+    case 'circle': shapeClass = 'rounded-full object-cover aspect-square'; inlineStyle.width = '100%'; inlineStyle.height = '100%'; break;
+    case 'rounded': shapeClass = 'rounded-[2rem] object-contain border-2 border-slate-200/60'; break;
+    case 'blob': shapeClass = 'object-cover aspect-square'; inlineStyle.borderRadius = '40% 60% 70% 30% / 40% 50% 60% 50%'; inlineStyle.width = '100%'; inlineStyle.height = '100%'; break;
+    case 'rhombus': shapeClass = 'object-cover aspect-square'; inlineStyle.clipPath = 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)'; inlineStyle.width = '100%'; inlineStyle.height = '100%'; break;
+    case 'star': shapeClass = 'object-cover aspect-square'; inlineStyle.clipPath = 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)'; inlineStyle.width = '100%'; inlineStyle.height = '100%'; break;
+    case 'octagon': shapeClass = 'object-cover aspect-square'; inlineStyle.clipPath = 'polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%)'; inlineStyle.width = '100%'; inlineStyle.height = '100%'; break;
+    case 'ticket': shapeClass = 'object-cover aspect-square'; inlineStyle.clipPath = 'polygon(15% 0, 85% 0, 100% 15%, 100% 85%, 85% 100%, 15% 100%, 0 85%, 0 15%)'; inlineStyle.width = '100%'; inlineStyle.height = '100%'; break;
+    default: shapeClass = 'rounded-md object-contain border-2 border-slate-200/60'; break;
+  }
+  return (
+    <div className="flex items-center justify-center w-full h-full overflow-hidden">
+      <img src={getDriveImageUrl(ill.dataUrl)} className={`bg-slate-50 transition-all duration-200 ${shapeClass}`} style={{...inlineStyle, filter: 'drop-shadow(0px 2px 4px rgba(0,0,0,0.1))'}} alt="挿絵" />
+    </div>
+  );
+};
+
+const BOOK_SETTINGS = { charsPerLine: 35, linesPerPage: 13, kinsokuMode: 'none' };
+
+const BookPaper = ({ draft }) => {
+  const safeIlls = useMemo(() => getSafeArray(draft?.illustrations), [draft]);
+  const contentPages = useMemo(() => parseToPages(draft?.title, draft?.class, draft?.name, draft?.content, BOOK_SETTINGS, false, safeIlls, true), [draft, safeIlls]);
+  const allPages = ['cover', ...contentPages];
+
+  return (
+    <div className="flex flex-row-reverse p-10 gap-10 bg-slate-100 w-max">
+       {allPages.map((page, pIdx) => {
+         const pageNum = pIdx + 1;
+         const pageIlls = safeIlls.filter(ill => parseInt(ill.page) === pageNum);
+         let illClass = 'h-0';
+         if (pageIlls.length === 1) illClass = 'h-[35%] grid-cols-1';
+         else if (pageIlls.length === 2) illClass = 'h-[30%] grid-cols-2';
+         else if (pageIlls.length >= 3) illClass = 'h-[25%] grid-cols-3';
+
+         return (
+           <div key={pIdx} className="relative w-[460px] h-[580px] bg-white border border-slate-200/60 py-8 px-6 flex flex-col font-serif shadow-sm">
+             {pageIlls.length > 0 && (
+                <div className={`grid gap-3 mb-4 w-full shrink-0 ${illClass}`}>
+                   {pageIlls.slice().reverse().map(ill => <IllustrationImage key={ill.id} ill={ill} />)}
+                </div>
+             )}
+             {page === 'cover' ? (
+               <div className="flex-1 relative w-full h-full">
+                 <div className="absolute top-[10%] right-1/2 transform translate-x-1/2 vertical-rl text-[2.2rem] font-bold text-slate-800 tracking-[0.2em] leading-relaxed max-h-[80%]">{draft?.title || <Rb t="無題" r="むだい"/>}</div>
+                 <div className="absolute bottom-[10%] left-[15%] flex flex-row-reverse gap-4">
+                   <div className="vertical-rl text-[1.1rem] text-slate-600 mt-8">{draft?.class}</div>
+                   <div className="vertical-rl text-[1.6rem] font-bold text-slate-800">{draft?.name}</div>
+                 </div>
+               </div>
+             ) : (
+               <div className="flex-1 w-full flex justify-center overflow-hidden">
+                 <div className="h-full vertical-rl text-[14px] text-slate-800 tracking-wide" style={{ wordBreak: 'break-all' }}>
+                   {page.map((line, lIdx) => {
+                     const str = line.map(c => c.char).join('');
+                     return <p key={lIdx} className="m-0" style={{ lineHeight: '2.2', whiteSpace: 'nowrap' }}>{str === '' ? '\u3000' : str}</p>;
+                   })}
+                 </div>
+               </div>
+             )}
+             <div className="absolute bottom-5 w-full left-0 text-center text-sm text-slate-500 font-sans tracking-widest">- {pageNum} -</div>
+           </div>
+         );
+       })}
+    </div>
+  );
+};
+
+// --- 印刷用コンポーネント ---
+const PrintGenkoView = ({ draft, settings }) => {
+  if (!draft) return null;
+  const pages = parseToPages(draft.title, draft.class, draft.name, draft.content, settings, true);
+  const { charsPerLine, linesPerPage } = settings;
+  const halfLines = Math.ceil(linesPerPage / 2);
+
+  return (
+    <>
+      {pages.map((page, pIdx) => {
+        const rightPage = page.slice(0, halfLines);
+        const leftPage = page.slice(halfLines);
+        return (
+          <div key={pIdx} className="w-[297mm] h-[210mm] p-[8mm] bg-white mx-auto box-border font-serif" style={{ pageBreakAfter: 'always' }}>
+            <div className="flex flex-row-reverse w-full h-full border-2 border-green-800 box-border">
+              <div className="flex-1 flex flex-row-reverse box-border">
+                {rightPage.map((line, lIdx) => (
+                  <div key={lIdx} className="flex-1 flex flex-col border-l border-green-800/60 box-border">
+                    {line.slice(0, charsPerLine).map((charObj, cIdx) => (
+                      <div key={cIdx} className="flex-1 flex items-center justify-center border-b border-green-800/60 text-slate-800 vertical-rl leading-none relative box-border">
+                        <span style={{ fontSize: '14pt' }}>{charObj.char}</span>
+                        {cIdx === charsPerLine - 1 && line.length > charsPerLine && (<div className="absolute top-[100%] left-1/2 -translate-x-1/2 whitespace-nowrap vertical-rl text-[0.6em] mt-[0.1em] pointer-events-none">{line.slice(charsPerLine).map(c => c.char).join('')}</div>)}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              <div className="w-[15mm] flex flex-col items-center border-l-2 border-r-2 border-green-800 text-green-800 py-[15mm] relative shrink-0 box-border">
+                 <svg viewBox="0 0 20 30" className="w-[4mm] h-[6mm] mb-[15mm] fill-none stroke-green-800" strokeWidth="1.5"><path d="M 2 30 L 2 10 Q 2 2 10 2 Q 18 2 18 10 L 18 30" /></svg>
+                 <div className="flex-1 vertical-rl text-[9pt] tracking-[0.3em] font-medium">{draft.title ? draft.title.substring(0, 20) : ''}</div>
+                 <div className="absolute bottom-[15mm] text-[9pt]">{pIdx + 1}</div>
+              </div>
+              <div className="flex-1 flex flex-row-reverse box-border">
+                {leftPage.map((line, lIdx) => (
+                  <div key={lIdx} className="flex-1 flex flex-col border-l border-green-800/60 box-border">
+                    {line.slice(0, charsPerLine).map((charObj, cIdx) => (
+                      <div key={cIdx} className="flex-1 flex items-center justify-center border-b border-green-800/60 text-slate-800 vertical-rl leading-none relative box-border">
+                        <span style={{ fontSize: '14pt' }}>{charObj.char}</span>
+                        {cIdx === charsPerLine - 1 && line.length > charsPerLine && (<div className="absolute top-[100%] left-1/2 -translate-x-1/2 whitespace-nowrap vertical-rl text-[0.6em] mt-[0.1em] pointer-events-none">{line.slice(charsPerLine).map(c => c.char).join('')}</div>)}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+};
+
+const PrintBookView = ({ draft }) => {
+  if (!draft) return null;
+  const safeIlls = getSafeArray(draft.illustrations);
+  const contentPages = parseToPages(draft.title, draft.class, draft.name, draft.content, BOOK_SETTINGS, false, safeIlls, true);
+  const allPages = ['cover', ...contentPages];
+  
+  const spreads = [];
+  for(let i=0; i<allPages.length; i+=2) { spreads.push([allPages[i], allPages[i+1]]); }
+
+  return (
+    <>
+      {spreads.map((spread, i) => (
+        <div key={i} className="w-[297mm] h-[210mm] flex justify-center items-center bg-white mx-auto box-border font-serif" style={{ pageBreakAfter: 'always' }}>
+           <div className="flex flex-row-reverse gap-[20mm] w-full justify-center px-[10mm]">
+             {spread.map((page, idx) => {
+               if (!page) return <div key={idx} className="w-[125mm] h-[170mm]" />; 
+               const pageNum = i * 2 + idx + 1;
+               const pageIlls = safeIlls.filter(ill => parseInt(ill.page) === pageNum);
+               let illClass = 'h-0';
+               if (pageIlls.length === 1) illClass = 'h-[35%] grid-cols-1';
+               else if (pageIlls.length === 2) illClass = 'h-[30%] grid-cols-2';
+               else if (pageIlls.length >= 3) illClass = 'h-[25%] grid-cols-3';
+
+               return (
+                 <div key={idx} className="relative w-[125mm] h-[170mm] flex flex-col p-[2mm]">
+                   {pageIlls.length > 0 && (<div className={`grid gap-3 mb-4 w-full shrink-0 ${illClass}`}>{pageIlls.slice().reverse().map(ill => <IllustrationImage key={ill.id} ill={ill} />)}</div>)}
+                   {page === 'cover' ? (
+                     <div className="flex-1 relative w-full h-full">
+                       <div className="absolute top-[15%] right-1/2 transform translate-x-1/2 vertical-rl text-[28pt] font-bold text-slate-800 tracking-[0.2em] leading-relaxed max-h-[70%]">{draft.title || '無題'}</div>
+                       <div className="absolute bottom-[10%] left-[15%] flex flex-row-reverse gap-4">
+                         <div className="vertical-rl text-[14pt] text-slate-600 mt-[10mm]">{draft.class}</div>
+                         <div className="vertical-rl text-[18pt] font-bold text-slate-800">{draft.name}</div>
+                       </div>
+                     </div>
+                   ) : (
+                     <div className="flex-1 w-full flex justify-center overflow-hidden">
+                       <div className="h-full vertical-rl text-[13pt] text-slate-900 tracking-wide" style={{ wordBreak: 'break-all' }}>
+                          {page.map((line, lIdx) => {
+                            const str = line.map(c=>c.char).join('');
+                            return <p key={lIdx} className="m-0" style={{ lineHeight: '2.0', whiteSpace: 'nowrap' }}>{str === '' ? '\u3000' : str}</p>;
+                          })}
+                       </div>
+                     </div>
+                   )}
+                   <div className={`absolute -bottom-[12mm] ${idx === 0 ? 'left-[2mm]' : 'right-[2mm]'} text-[10pt] font-sans text-slate-500`}>- {pageNum} -</div>
+                   {page !== 'cover' && (<div className={`absolute -top-[12mm] ${idx === 0 ? 'left-[2mm]' : 'right-[2mm]'} text-[9pt] text-slate-500 font-sans tracking-wider`}>{draft.title ? draft.title.substring(0, 15) : ''}</div>)}
+                 </div>
+               )
+             })}
+           </div>
+        </div>
+      ))}
+    </>
+  );
+};
+
+// --- ギャラリー用の全画面インタラクティブリーダー ---
+const InteractiveBookViewer = ({ draft, onClose, handleAddComment }) => {
+  const safeIlls = useMemo(() => getSafeArray(draft?.illustrations), [draft]);
+  const contentPages = useMemo(() => parseToPages(draft?.title, draft?.class, draft?.name, draft?.content, BOOK_SETTINGS, false, safeIlls, true), [draft, safeIlls]);
+  const allPages = useMemo(() => ['cover', ...contentPages], [contentPages]);
+  
+  const [currentPage, setCurrentPage] = useState(0);
+  const [commentName, setCommentName] = useState('');
+  const [commentText, setCommentText] = useState('');
+
+  // エディタと完全に同じ表示にするためのスケール計算
+  const containerRef = useRef(null);
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    let reqId;
+    const updateScale = () => {
+      if (!containerRef.current) return;
+      const availableW = containerRef.current.clientWidth - 32; // 余白考慮
+      const availableH = containerRef.current.clientHeight - 64; // 上下ナビ等考慮
+      if (availableW > 0 && availableH > 0) {
+          // 基準サイズ: w-460, h-580 (BookPaperと同一)
+          const scaleW = availableW / 460;
+          const scaleH = availableH / 580;
+          setScale(Math.min(scaleW, scaleH, 1.6)); // 最大1.6倍まで拡大
+      }
+    };
+
+    const observer = new ResizeObserver(() => { reqId = requestAnimationFrame(updateScale); });
+    if (containerRef.current) observer.observe(containerRef.current);
+    updateScale();
+    return () => { observer.disconnect(); if (reqId) cancelAnimationFrame(reqId); };
+  }, []);
+
+  const goToNextPage = useCallback(() => {
+    setCurrentPage(p => Math.min(p + 1, allPages.length - 1));
+  }, [allPages.length]);
+
+  const goToPrevPage = useCallback(() => {
+    setCurrentPage(p => Math.max(p - 1, 0));
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (document.activeElement && ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+      if (e.key === 'ArrowLeft') { e.preventDefault(); goToNextPage(); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); goToPrevPage(); }
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [goToNextPage, goToPrevPage, onClose]);
+
+  const touchStartX = useRef(null);
+  const touchEndX = useRef(null);
+  const handleTouchStart = (e) => { touchStartX.current = e.targetTouches[0].clientX; };
+  const handleTouchMove = (e) => { touchEndX.current = e.targetTouches[0].clientX; };
+  const handleTouchEnd = () => {
+    if (!touchStartX.current || !touchEndX.current) return;
+    const distance = touchStartX.current - touchEndX.current;
+    // 縦書きは右から左へめくるので、左スワイプ（distance > 50）で次へ、右スワイプで前へ
+    if (distance > 50) goToNextPage(); 
+    if (distance < -50) goToPrevPage(); 
+    touchStartX.current = null;
+    touchEndX.current = null;
+  };
+
+  const page = allPages[currentPage];
+  const pageNum = currentPage + 1;
+  const pageIlls = safeIlls.filter(ill => parseInt(ill.page) === pageNum);
+  let illClass = 'h-0';
+  if (pageIlls.length === 1) illClass = 'h-[35%] grid-cols-1';
+  else if (pageIlls.length === 2) illClass = 'h-[30%] grid-cols-2';
+  else if (pageIlls.length >= 3) illClass = 'h-[25%] grid-cols-3';
+
+  return (
+    <div className="fixed inset-0 z-[200] bg-slate-900/95 backdrop-blur-sm flex flex-col lg:flex-row overflow-hidden animate-modal no-print">
+      {/* わかりやすい「一覧にもどる」ボタン */}
+      <button onClick={onClose} className="absolute top-4 left-4 lg:top-6 lg:left-6 z-[210] px-4 py-2 lg:px-5 lg:py-2.5 bg-white/10 hover:bg-white/25 text-white font-bold rounded-full transition-all backdrop-blur-md flex items-center gap-2.5 cursor-pointer border border-white/20 shadow-lg active:scale-95 group">
+        <i className="bi bi-arrow-left text-[20px] group-hover:-translate-x-1 transition-transform"></i>
+        <span className="tracking-widest hidden sm:block"><Rb t="一覧" r="いちらん"/>にもどる</span>
+        <span className="tracking-widest sm:hidden">もどる</span>
+      </button>
+
+      {/* メイン: 作品ビューア */}
+      <div 
+        className="flex-1 relative flex flex-col items-center justify-center p-4 pb-0 lg:p-10 touch-pan-y"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        style={{ touchAction: 'pan-y' }}
+      >
+        <button onClick={goToNextPage} disabled={currentPage === allPages.length - 1} className="absolute left-2 lg:left-10 z-10 w-16 h-32 flex items-center justify-center text-white/50 hover:text-white disabled:opacity-0 transition-colors text-5xl hidden lg:flex cursor-pointer" title="次のページ (左キー)" aria-label="次のページ">
+           <i className="bi bi-chevron-left drop-shadow-md" aria-hidden="true"></i>
+        </button>
+        <button onClick={goToPrevPage} disabled={currentPage === 0} className="absolute right-2 lg:right-10 z-10 w-16 h-32 flex items-center justify-center text-white/50 hover:text-white disabled:opacity-0 transition-colors text-5xl hidden lg:flex cursor-pointer" title="前のページ (右キー)" aria-label="前のページ">
+           <i className="bi bi-chevron-right drop-shadow-md" aria-hidden="true"></i>
+        </button>
+
+        {/* コンテナのサイズに基づいて自動スケール */}
+        <div ref={containerRef} className="w-full h-[55vh] lg:h-full flex items-center justify-center">
+           <div style={{ transform: `scale(${scale})`, transformOrigin: 'center', transition: 'transform 0.1s ease-out' }}>
+             {/* 以下のマークアップ・クラスは、エディタの「BookPaper」コンポーネントと完全に同一です */}
+             <div className="relative w-[460px] h-[580px] bg-white border border-slate-200/60 py-8 px-6 flex flex-col font-serif shadow-2xl">
+               {pageIlls.length > 0 && (
+                  <div className={`grid gap-3 mb-4 w-full shrink-0 ${illClass}`}>
+                     {pageIlls.slice().reverse().map(ill => <IllustrationImage key={ill.id} ill={ill} />)}
+                  </div>
+               )}
+               {page === 'cover' ? (
+                 <div className="flex-1 relative w-full h-full">
+                   <div className="absolute top-[10%] right-1/2 transform translate-x-1/2 vertical-rl text-[2.2rem] font-bold text-slate-800 tracking-[0.2em] leading-relaxed max-h-[80%]">{draft?.title || '無題'}</div>
+                   <div className="absolute bottom-[10%] left-[15%] flex flex-row-reverse gap-4">
+                     <div className="vertical-rl text-[1.1rem] text-slate-600 mt-8">{draft?.class}</div>
+                     <div className="vertical-rl text-[1.6rem] font-bold text-slate-800">{draft?.name}</div>
+                   </div>
+                 </div>
+               ) : (
+                 <div className="flex-1 w-full flex justify-center overflow-hidden">
+                   <div className="h-full vertical-rl text-[14px] text-slate-800 tracking-wide" style={{ wordBreak: 'break-all' }}>
+                     {page.map((line, lIdx) => {
+                       const str = line.map(c => c.char).join('');
+                       return <p key={lIdx} className="m-0" style={{ lineHeight: '2.2', whiteSpace: 'nowrap' }}>{str === '' ? '\u3000' : str}</p>;
+                     })}
+                   </div>
+                 </div>
+               )}
+               <div className="absolute bottom-5 w-full left-0 text-center text-sm text-slate-500 font-sans tracking-widest">- {pageNum} -</div>
+             </div>
+           </div>
+        </div>
+        
+        {/* モバイル用ナビゲーションインジケーター */}
+        <div className="flex items-center justify-center gap-6 lg:hidden z-10 text-white/70 mt-4">
+            <button onClick={goToPrevPage} disabled={currentPage === 0} className="p-3 disabled:opacity-30"><i className="bi bi-chevron-right text-2xl"></i></button>
+            <span className="text-sm font-bold tracking-widest">{pageNum} / {allPages.length}</span>
+            <button onClick={goToNextPage} disabled={currentPage === allPages.length - 1} className="p-3 disabled:opacity-30"><i className="bi bi-chevron-left text-2xl"></i></button>
+        </div>
+      </div>
+
+      {/* サイドバー: 感想・コメントエリア */}
+      <div className="w-full lg:w-[400px] h-[40vh] lg:h-full bg-slate-50 flex flex-col shadow-2xl shrink-0 z-10 rounded-t-3xl lg:rounded-t-none lg:rounded-l-3xl relative mt-auto lg:mt-0">
+         <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-12 h-1.5 bg-white/30 rounded-full lg:hidden"></div>
+         <div className="p-4 lg:p-6 border-b border-slate-200/80 flex items-center justify-between bg-white rounded-t-3xl lg:rounded-t-none lg:rounded-tl-3xl shrink-0">
+           <div className="flex items-center gap-3">
+             <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 shadow-sm"><i className="bi bi-chat-heart-fill text-[18px]"></i></div>
+             <div>
+               <h3 className="font-bold text-slate-800"><Rb t="感想" r="かんそう"/>・コメント</h3>
+               <p className="text-xs text-slate-500 font-bold">{getSafeArray(draft.comments).length} 件のコメント</p>
+             </div>
+           </div>
+         </div>
+         <div className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-3 hide-scrollbar relative">
+            {getSafeArray(draft.comments).length > 0 ? getSafeArray(draft.comments).map((c, i) => (
+              <div key={i} className="bg-white p-4 rounded-2xl border border-slate-200/60 text-sm shadow-sm relative animate-modal" style={{ animationDelay: `${i * 0.05}s` }}>
+                <div className="font-bold text-emerald-600 mb-1 text-xs">{c.name}</div>
+                <div className="text-slate-700 leading-relaxed">{c.text}</div>
+                <div className="text-[10px] text-slate-500 absolute top-4 right-4">{c.createdAt?.split(' ')[0]}</div>
+              </div>
+            )) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 p-6 text-center">
+                <i className="bi bi-chat-dots text-[48px] mb-3 text-slate-300"></i>
+                <p className="text-sm font-bold">まだコメントはありません。<br/>最初の感想を書きましょう！</p>
+              </div>
+            )}
+         </div>
+         <div className="p-4 lg:p-6 border-t border-slate-200/80 bg-white shrink-0">
+            <div className="flex flex-col gap-2.5">
+              <input type="text" value={commentName} onChange={e=>setCommentName(e.target.value)} placeholder="あなたのなまえ" className="w-full px-4 py-2.5 bg-slate-100/50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 transition-all font-bold text-slate-700 text-sm" />
+              <div className="flex gap-2">
+                <input type="text" value={commentText} onChange={e=>setCommentText(e.target.value)} onKeyDown={(e) => {
+                  if(e.key === 'Enter' && commentText) {
+                    handleAddComment(draft.id, {name: commentName||'名無し', text: commentText});
+                    setCommentText('');
+                  }
+                }} placeholder="かんそうをかこう" className="flex-1 px-4 py-2.5 bg-slate-100/50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 transition-all text-sm" />
+                <button onClick={() => {
+                   if(commentText) { handleAddComment(draft.id, {name: commentName||'名無し', text: commentText}); setCommentText(''); }
+                }} disabled={!commentText} className="w-12 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 disabled:opacity-50 disabled:hover:bg-emerald-500 transition-all active:scale-95 shadow-sm shrink-0 flex items-center justify-center"><i className="bi bi-send-fill"></i></button>
+              </div>
+            </div>
+         </div>
+      </div>
+    </div>
+  );
+}
+
+// --- オートセーブ、スクロール完全同期を備えたStudentView ---
+const StudentView = ({ draft, settings, updateDraft, onSubmitDraft, onNew, openLoadModal, showToast, showLoading, hideLoading, previewMode, setPreviewMode, saveStatus, autoSaveDraftToQueue }) => {
+  const [tab, setTab] = useState('write');
+  const [selectedCor, setSelectedCor] = useState(null);
+  const [isDuplicateConfirmOpen, setIsDuplicateConfirmOpen] = useState(false);
+  // モバイル・タブレット縦持ちでは「かく」と「プレビュー」を切り替えて全画面で使う
+  const [mobilePane, setMobilePane] = useState('edit');
+
+  const previewContainerRef = useRef(null);
+
+  const safeIlls = getSafeArray(draft.illustrations);
+  const isCompleted = draft.status === 'completed';
+  const isSubmitted = draft.status === 'submitted';
+  const isLocked = isCompleted || isSubmitted;
+  const parsedCorrections = parseCorrectionData(draft.correction, draft.content);
+  const hasDiff = parsedCorrections.baseText && parsedCorrections.baseText !== draft.content;
+
+  // エディタとプレビューのスクロール完全同期
+  const handleTextareaScroll = useCallback((e) => {
+      const ta = e.target;
+      const pc = previewContainerRef.current;
+      if (!pc) return;
+      const ratio = ta.scrollTop / (ta.scrollHeight - ta.clientHeight);
+      if (isNaN(ratio)) return;
+
+      const maxScroll = pc.scrollWidth - pc.clientWidth;
+      if (maxScroll <= 0) return;
+
+      // direction: rtl のコンテナに対するスクロール制御。主要ブラウザは負の値をとる。
+      if (pc.dir === 'rtl' || window.getComputedStyle(pc).direction === 'rtl') {
+          pc.scrollLeft = -(maxScroll * ratio);
+      } else {
+          pc.scrollLeft = maxScroll * ratio;
+      }
+  }, []);
+
+  const executeDuplicate = () => {
+    updateDraft({ id: '', status: 'draft', correction: '', comments: [], illustrations: JSON.parse(JSON.stringify(safeIlls)) });
+    setIsDuplicateConfirmOpen(false);
+    showToast('コピーしました！新しく保存・提出できます。', 'success');
+  };
+
+  const handleImageUpload = async (e) => {
+    if (isLocked || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    try {
+      showLoading(<><Rb t="画像" r="がぞう"/>をアップロード<Rb t="中" r="ちゅう"/>...</>);
+      const base64Data = await resizeImage(file);
+      const res = await runGAS('uploadIllustration', base64Data, file.name);
+      if (res.status === 'success') {
+        const newIll = { id: Date.now().toString(), page: 1, dataUrl: res.url, size: 100, shape: 'rectangle' };
+        updateDraft({ illustrations: [newIll, ...safeIlls] });
+        showToast(<><Rb t="画像" r="がぞう"/>を<Rb t="追加" r="ついか"/>しました</>, 'success');
+      } else { throw new Error(res.message); }
+    } catch (err) { showToast(<><Rb t="画像" r="がぞう"/>の<Rb t="読" r="よ"/>み<Rb t="込" r="こ"/>みに<Rb t="失敗" r="しっぱい"/>しました</>, 'error'); } 
+    finally { hideLoading(); e.target.value = ''; }
+  };
+
+  const deleteIll = (id) => { if(!isLocked) updateDraft({ illustrations: safeIlls.filter(i => i.id !== id) }); }
+  const updateIllPage = (id, page) => { if(!isLocked) updateDraft({ illustrations: safeIlls.map(i => i.id === id ? { ...i, page: parseInt(page) || 1 } : i) }); }
+  const updateIllStyle = (id, key, value) => { if(!isLocked) updateDraft({ illustrations: safeIlls.map(i => i.id === id ? { ...i, [key]: key === 'size' ? parseInt(value) : value } : i) }); };
+  const moveIll = (index, direction) => {
+    if(isLocked) return;
+    const newIlls = [...safeIlls];
+    if (direction === 'up' && index > 0) { [newIlls[index], newIlls[index - 1]] = [newIlls[index - 1], newIlls[index]]; updateDraft({ illustrations: newIlls }); } 
+    else if (direction === 'down' && index < newIlls.length - 1) { [newIlls[index], newIlls[index + 1]] = [newIlls[index + 1], newIlls[index]]; updateDraft({ illustrations: newIlls }); }
+  };
+
+  const handleCorrectionClick = useCallback((cor) => { setSelectedCor(cor); }, []);
+
+  const handleResolveCorrection = async () => {
+      if (!selectedCor) return;
+      let parsedCorrections = parseCorrectionData(draft.correction, draft.content);
+      const newItems = getSafeArray(parsedCorrections.items).map(c => c.id === selectedCor.id ? { ...c, status: 'resolved' } : c);
+      const updatedDraft = { ...draft, correction: JSON.stringify({ baseText: draft.content, items: newItems }) };
+      
+      updateDraft({ correction: updatedDraft.correction });
+      setSelectedCor(null);
+      showToast('修正完了としてマークしました', 'success');
+      // オートセーブキューに入れる
+      autoSaveDraftToQueue(updatedDraft);
+  };
+
+  const adjustedCorrections = useMemo(() => {
+      const parsed = parseCorrectionData(draft.correction, draft.content);
+      return getAdjustedCorrections(parsed.baseText, draft.content, parsed.items);
+  }, [draft.correction, draft.content]);
+
+  return (
+    <div className="flex-1 flex flex-col lg:flex-row gap-2 lg:gap-4 p-2 lg:p-4 min-h-0">
+      <div className="flex lg:hidden bg-white rounded-xl border border-slate-200 shadow-sm p-1 gap-1 shrink-0">
+        <button onClick={() => setMobilePane('edit')} className={`flex-1 pt-2.5 pb-1.5 rounded-lg text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 ${mobilePane === 'edit' ? 'bg-orange-500 text-white shadow-sm' : 'text-slate-500'}`}><i className="bi bi-pencil-fill text-[14px] -mt-1"></i>かく</button>
+        <button onClick={() => setMobilePane('preview')} className={`flex-1 pt-2.5 pb-1.5 rounded-lg text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 ${mobilePane === 'preview' ? 'bg-orange-500 text-white shadow-sm' : 'text-slate-500'}`}><i className="bi bi-eye-fill text-[14px] -mt-1"></i>プレビュー</button>
+      </div>
+      <div className={`${mobilePane === 'edit' ? 'flex' : 'hidden'} lg:flex flex-1 lg:flex-none min-h-0 w-full lg:w-1/3 bg-white rounded-2xl shadow-sm border border-slate-200 flex-col overflow-hidden`}>
+        <div className="flex border-b border-slate-100 bg-slate-50 shrink-0">
+          <button onClick={() => setTab('write')} className={`flex-1 pt-5 pb-3 font-bold transition-all active:scale-95 leading-loose ${tab==='write' ? 'text-orange-600 bg-white border-b-2 border-orange-600' : 'text-slate-500 hover:bg-slate-100/50'}`}><Rb t="書" r="か"/>く</button>
+          <button onClick={() => setTab('illust')} className={`flex-1 pt-5 pb-3 font-bold transition-all active:scale-95 leading-loose ${tab==='illust' ? 'text-orange-600 bg-white border-b-2 border-orange-600' : 'text-slate-500 hover:bg-slate-100/50'}`}><Rb t="挿絵" r="さしえ"/></button>
+        </div>
+        
+        <div className="flex-1 overflow-auto p-5 flex flex-col relative">
+          {tab === 'write' ? (
+            <>
+              <div className="flex justify-between items-center mb-4 shrink-0">
+                 <div className="flex items-center gap-3">
+                     <span className="text-sm font-bold text-slate-500 pt-2 leading-loose"><Rb t="基本情報" r="きほんじょうほう"/></span>
+                     {isLocked && (
+                       <span className={`px-2.5 py-1 rounded text-xs font-bold shadow-sm flex items-center gap-1 mt-1 ${isCompleted ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                         <i className="bi bi-lock-fill"></i> {isCompleted ? <Rb t="完了" r="かんりょう"/> : <Rb t="提出済" r="ていしゅつずみ"/>}のため<Rb t="編集" r="へんしゅう"/>できません
+                       </span>
+                     )}
+                     {!isLocked && hasDiff && (<span className="px-2.5 py-1 rounded text-xs font-bold bg-blue-100 text-blue-700 shadow-sm flex items-center gap-1 mt-1"><i className="bi bi-info-circle"></i> <Rb t="変更あり" r="へんこうあり"/></span>)}
+                 </div>
+                 {/* 「開く」の一覧と同じ4種類を出す。再提出で返された作品が「下書き」と表示されていた */}
+                 <span className={`pt-2 pb-1 px-3 rounded-full text-xs font-bold text-white shadow-sm leading-loose ${draft.status==='submitted'?'bg-blue-500':draft.status==='completed'?'bg-emerald-500':draft.status==='rework'?'bg-amber-500':'bg-slate-400'}`}>
+                   {draft.status==='submitted' ? <Rb t="提出済" r="ていしゅつずみ"/> : draft.status==='completed' ? <Rb t="完了" r="かんりょう"/> : draft.status==='rework' ? <Rb t="再提出" r="さいていしゅつ"/> : <><Rb t="下書" r="したが"/>き</>}
+                 </span>
+              </div>
+              <input type="text" readOnly={isLocked} placeholder="だいめい" value={draft.title} onChange={e=>updateDraft({title:e.target.value})} className={`shrink-0 w-full px-4 py-3 mb-3 border border-slate-200 rounded-xl outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100 font-bold text-lg transition-all ${isLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50/50 focus:bg-white text-slate-800'}`} />
+              <div className="flex gap-3 mb-4 shrink-0">
+                <input type="text" readOnly={isLocked} placeholder="がくねん・くみ" value={draft.class} onChange={e=>updateDraft({class:e.target.value})} className={`w-1/3 px-4 py-2 border border-slate-200 rounded-xl outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100 transition-all ${isLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50/50 focus:bg-white text-slate-800'}`} />
+                <input type="text" readOnly={isLocked} placeholder="なまえ" value={draft.name} onChange={e=>updateDraft({name:e.target.value})} className={`flex-1 px-4 py-2 border border-slate-200 rounded-xl outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100 transition-all ${isLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50/50 focus:bg-white text-slate-800'}`} />
+              </div>
+              <textarea readOnly={isLocked} onScroll={handleTextareaScroll} placeholder="ここにものがたりやせつめいぶんをかいてください..." value={draft.content} onChange={e=>updateDraft({content:e.target.value})} className={`flex-1 min-h-[250px] w-full p-5 border border-slate-200 rounded-xl outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100 resize-none leading-loose text-lg mb-2 shadow-inner transition-all hide-scrollbar ${isLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-orange-50/40 focus:bg-orange-50/80 text-slate-800'}`} />
+              <div className="flex justify-between items-center shrink-0 mb-2 mt-1">
+                  {/* シームレスなオートセーブインジケーター */}
+                  <div className="flex items-center gap-1.5 text-xs font-bold pt-1">
+                      {saveStatus === 'saved' && <span className="text-emerald-500/80"><i className="bi bi-cloud-check-fill mr-1 text-[14px]"></i>クラウド保存済</span>}
+                      {saveStatus === 'saving' && <span className="text-orange-500 animate-pulse"><i className="bi bi-arrow-repeat mr-1 text-[14px]"></i>保存中...</span>}
+                      {saveStatus === 'unsaved' && <span className="text-slate-500"><i className="bi bi-pencil-fill mr-1 text-[14px]"></i>編集中</span>}
+                      {saveStatus === 'offline' && <span className="text-rose-500"><i className="bi bi-cloud-slash-fill mr-1 text-[14px]"></i>オフライン (端末に一時保存)</span>}
+                      {saveStatus === 'error' && <span className="text-rose-500"><i className="bi bi-exclamation-circle-fill mr-1 text-[14px]"></i>エラー (端末に一時保存)</span>}
+                  </div>
+                  <div className="text-sm text-slate-500 font-bold pt-1">{(draft.content || '').replace(/\n/g, '').length} <Rb t="文字" r="もじ"/></div>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-col h-full">
+               {isLocked ? (
+                   <div className={`${isCompleted ? 'bg-emerald-50/80 border-emerald-100 text-emerald-800' : 'bg-blue-50/80 border-blue-100 text-blue-800'} border px-4 pt-5 pb-4 rounded-xl text-sm mb-5 shadow-sm leading-relaxed shrink-0`}>
+                     <i className="bi bi-lock-fill inline mr-1 text-[18px]"></i> {isCompleted ? <Rb t="完了済" r="かんりょうずみ"/> : <Rb t="提出済" r="ていしゅつずみ"/>}の<Rb t="作品" r="さくひん"/>のため、<Rb t="挿絵" r="さしえ"/>の<Rb t="追加" r="ついか"/>や<Rb t="変更" r="へんこう"/>はできません。
+                   </div>
+               ) : (
+                   <>
+                       <div className="bg-blue-50/80 border border-blue-100 text-blue-800 px-4 pt-5 pb-4 rounded-xl text-sm mb-5 shadow-sm leading-relaxed shrink-0">
+                         <i className="bi bi-image inline mr-1 text-[18px]"></i> <Rb t="挿絵" r="さしえ"/>の<Rb t="画像" r="がぞう"/>を<Rb t="追加" r="ついか"/>し、<Rb t="配置" r="はいち"/>したいページ<Rb t="番号" r="ばんごう"/>を<Rb t="指定" r="してい"/>してください。<br/>
+                         「<Rb t="本" r="ほん"/>」モードでプレビューできます。
+                       </div>
+                       <label className="border-2 border-dashed border-slate-300 rounded-xl p-8 flex flex-col items-center justify-center text-slate-500 hover:bg-orange-50/50 hover:border-orange-400 hover:text-orange-600 transition-all cursor-pointer mb-5 shadow-sm active:scale-[0.98] shrink-0">
+                         <i className="bi bi-plus-lg text-[36px] mb-2"></i>
+                         <span className="font-bold pt-2 leading-loose"><Rb t="画像" r="がぞう"/>を<Rb t="選択" r="せんたく"/>して<Rb t="追加" r="ついか"/></span>
+                         <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                       </label>
+                   </>
+               )}
+               <div className="flex-1 overflow-auto space-y-3 pr-2 hide-scrollbar">
+                 {safeIlls.length > 0 ? safeIlls.map((ill, index) => (
+                   <div key={ill.id} className="flex flex-col gap-3 p-4 bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+                     <div className="flex items-center gap-3">
+                       <div className="flex flex-col -mt-2 shrink-0">
+                         {!isLocked && <button onClick={() => moveIll(index, 'up')} disabled={index === 0} className={`p-1 transition-transform active:scale-90 ${index === 0 ? 'text-slate-200 cursor-not-allowed' : 'text-slate-500 hover:text-orange-500'}`} title="左(前)へ移動"><i className="bi bi-chevron-up text-[18px]"></i></button>}
+                         {!isLocked && <button onClick={() => moveIll(index, 'down')} disabled={index === safeIlls.length - 1} className={`p-1 transition-transform active:scale-90 ${index === safeIlls.length - 1 ? 'text-slate-200 cursor-not-allowed' : 'text-slate-500 hover:text-orange-500'}`} title="右(後)へ移動"><i className="bi bi-chevron-down text-[18px]"></i></button>}
+                       </div>
+                       <img src={getDriveImageUrl(ill.dataUrl)} className="w-16 h-16 shrink-0 object-cover rounded-lg bg-slate-100 border border-slate-200" alt="サムネイル" />
+                       <div className="flex-1 min-w-0">
+                         <div className="text-xs font-bold text-slate-500 mb-1.5 pt-2 leading-loose"><Rb t="配置" r="はいち"/>ページ</div>
+                         <input type="number" min="1" readOnly={isLocked} value={ill.page} onChange={e=>updateIllPage(ill.id, e.target.value)} className={`w-full px-3 py-1.5 border border-slate-200 rounded-lg outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100 font-bold transition-all ${isLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'text-slate-700'}`} />
+                       </div>
+                       {!isLocked && <button onClick={() => deleteIll(ill.id)} className="p-2.5 mt-2 text-rose-500 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-colors active:scale-90 shrink-0"><i className="bi bi-trash3 text-[20px]"></i></button>}
+                     </div>
+                     <div className="flex gap-4 border-t border-slate-100 pt-3">
+                       <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+                         <div className="text-xs font-bold text-slate-500 flex justify-between pt-2 leading-loose">
+                           <span><Rb t="大" r="おお"/>きさ</span><span>{ill.size || 100}%</span>
+                         </div>
+                         <input type="range" min="30" max="150" disabled={isLocked} value={ill.size || 100} onChange={e=>updateIllStyle(ill.id, 'size', e.target.value)} className={`w-full accent-orange-500 mt-1 ${isLocked ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`} />
+                       </div>
+                       <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+                         <div className="text-xs font-bold text-slate-500 pt-2 leading-loose"><Rb t="切" r="き"/>り<Rb t="抜" r="ぬ"/>き</div>
+                         <select value={ill.shape || 'rectangle'} disabled={isLocked} onChange={e=>updateIllStyle(ill.id, 'shape', e.target.value)} className={`w-full px-2 py-1.5 border border-slate-200 rounded-lg outline-none focus:border-orange-400 text-sm font-bold ${isLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'text-slate-700 cursor-pointer'}`}>
+                           <option value="rectangle">しかく（ひょうじゅん）</option>
+                           <option value="rounded">かどまる</option>
+                           <option value="circle">まる</option>
+                           <option value="blob">ふわふわ</option>
+                           <option value="rhombus">ひしがた</option>
+                           <option value="star">ほしがた</option>
+                           <option value="octagon">はっかくけい</option>
+                           <option value="ticket">チケット</option>
+                         </select>
+                       </div>
+                     </div>
+                   </div>
+                 )) : <div className="text-center text-slate-500 mt-10 font-bold pt-2 leading-loose"><Rb t="挿絵" r="さしえ"/>はありません</div>}
+               </div>
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 border-t border-slate-100 bg-white grid grid-cols-2 gap-3 shrink-0">
+           <button onClick={onNew} className="flex items-center justify-center gap-2 pt-4 pb-2.5 border border-slate-200 rounded-xl bg-slate-50 hover:bg-slate-100 font-bold text-slate-700 transition-all active:scale-95 leading-loose"><i className="bi bi-plus-lg text-[18px]"></i> <span><Rb t="新規" r="しんき"/></span></button>
+           <button onClick={openLoadModal} className="flex items-center justify-center gap-2 pt-4 pb-2.5 border border-orange-200 rounded-xl bg-orange-50 hover:bg-orange-100 text-orange-700 font-bold transition-all active:scale-95 leading-loose"><i className="bi bi-folder2-open text-[18px]"></i> <span><Rb t="開" r="ひら"/>く</span></button>
+           
+           {isLocked ? (
+               <button onClick={() => setIsDuplicateConfirmOpen(true)} className="col-span-2 flex items-center justify-center gap-2 pt-4 pb-3 bg-emerald-500 text-white rounded-xl font-bold hover:bg-emerald-600 transition-all active:scale-95 shadow-md hover:shadow-lg leading-loose"><i className="bi bi-files text-[18px]"></i> <span>コピーして<Rb t="新" r="あたら"/>しく<Rb t="書" r="か"/>く</span></button>
+           ) : (
+               <button onClick={() => onSubmitDraft()} className="col-span-2 flex items-center justify-center gap-2 pt-4 pb-3 bg-gradient-to-r from-orange-500 to-orange-400 text-white rounded-xl font-bold hover:from-orange-600 hover:to-orange-500 transition-all active:scale-95 shadow-md hover:shadow-lg leading-loose"><i className="bi bi-send text-[18px]"></i> <span><Rb t="提出" r="ていしゅつ"/>する</span></button>
+           )}
+        </div>
+      </div>
+
+      <div className={`${mobilePane === 'preview' ? 'flex' : 'hidden'} lg:flex flex-1 min-h-0 bg-white rounded-2xl shadow-sm border border-slate-200 flex-col overflow-hidden relative min-w-0`}>
+        <div className="absolute top-2 right-2 lg:top-4 lg:right-4 z-20 flex gap-1 bg-slate-100 p-1 rounded-xl shadow-sm border border-slate-200/80 items-center">
+          <button onClick={() => setPreviewMode('genko')} className={`px-3 pt-3 pb-1.5 rounded-lg text-sm font-bold transition-all active:scale-95 leading-loose ${previewMode==='genko' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><Rb t="原稿用紙" r="げんこうようし"/></button>
+          <button onClick={() => setPreviewMode('book')} className={`px-3 pt-3 pb-1.5 rounded-lg text-sm font-bold transition-all active:scale-95 leading-loose ${previewMode==='book' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><Rb t="本" r="ほん"/></button>
+          <div className="w-px h-5 bg-slate-300 mx-1 self-center" />
+          <button onClick={() => window.print()} className="px-2 pt-3 pb-1.5 rounded-lg text-sm font-bold text-emerald-600 hover:bg-emerald-50 transition-all active:scale-95 flex items-center gap-1 leading-loose"><i className="bi bi-printer text-[15px] -mt-1.5"></i><span><Rb t="印刷" r="いんさつ"/></span></button>
+        </div>
+        <div className="flex-1 relative min-h-0 bg-slate-100/50 rounded-b-2xl">
+          <ScalableWrapper key={draft?.id || 'new'} containerRefExternal={previewContainerRef}>
+            {previewMode === 'genko' ? <GenkoPaper draft={draft} settings={settings} corrections={adjustedCorrections} isTeacher={false} onClickCorrection={handleCorrectionClick} /> : previewMode === 'book' ? <BookPaper draft={draft} /> : <DiffViewer draft={draft} />}
+          </ScalableWrapper>
+        </div>
+      </div>
+      
+      <Modal isOpen={!!selectedCor} onClose={() => setSelectedCor(null)} title={<><Rb t="先生" r="せんせい"/>からのコメント</>} maxWidth="max-w-md">
+          {selectedCor && (
+              <div className="space-y-4">
+                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-xl text-slate-800 font-medium leading-relaxed">
+                      {selectedCor.comment.replace('【AI】', '')}
+                  </div>
+                  <button onClick={handleResolveCorrection} className="w-full pt-5 pb-3 leading-loose bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition-all active:scale-95 shadow-sm"><Rb t="修正完了" r="しゅうせいかんりょう"/>（<Rb t="赤線" r="あかせん"/>を<Rb t="消" r="け"/>す）</button>
+              </div>
+          )}
+      </Modal>
+
+      <Modal isOpen={isDuplicateConfirmOpen} onClose={() => setIsDuplicateConfirmOpen(false)} title={<><Rb t="作品" r="さくひん"/>のコピー</>} maxWidth="max-w-md">
+          <div className="space-y-4">
+              <p className="text-slate-700 font-bold leading-relaxed">
+                  この<Rb t="作品" r="さくひん"/>は「{isCompleted ? <Rb t="完了" r="かんりょう"/> : <Rb t="提出済" r="ていしゅつずみ"/>}」しているため、そのまま<Rb t="編集" r="へんしゅう"/>することはできません。<br/><br/>
+                  コピーして、<Rb t="新" r="あたら"/>しい<Rb t="作品" r="さくひん"/>として<Rb t="書" r="か"/>き<Rb t="直" r="なお"/>しますか？
+              </p>
+              <div className="flex gap-3 pt-4 border-t border-slate-100">
+                  <button onClick={() => setIsDuplicateConfirmOpen(false)} className="flex-1 py-3 bg-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-300 transition-all active:scale-95">キャンセル</button>
+                  <button onClick={executeDuplicate} className="flex-1 py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition-all active:scale-95 shadow-sm">コピーする</button>
+              </div>
+          </div>
+      </Modal>
+    </div>
+  );
+};
+
+const GalleryView = ({ db, onOpenBook }) => {
+  const published = db.filter(d => d.status === 'submitted' || d.status === 'completed');
+  return (
+    <div className="flex-1 overflow-auto bg-gradient-to-b from-amber-50/70 via-emerald-50/30 to-emerald-50/60 p-4 sm:p-8 no-print min-h-0">
+      <div className="max-w-7xl mx-auto">
+        <h2 className="text-2xl sm:text-3xl font-bold text-emerald-800 mb-6 sm:mb-8 flex items-center gap-3 justify-center pt-2 leading-loose"><i className="bi bi-book text-[32px] -mt-2"></i> <span>みんなの<Rb t="作品" r="さくひん"/>だな</span></h2>
+        {published.length === 0 ? (
+          <div className="text-center text-slate-500 mt-20 font-bold bg-white/50 py-10 pt-12 rounded-2xl border border-slate-200 backdrop-blur-sm leading-loose">まだ<Rb t="作品" r="さくひん"/>がありません。</div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-8">
+            {published.map(d => (
+              <div key={d.id} onClick={() => onOpenBook(d)} className="relative aspect-[3/4] bg-gradient-to-br from-slate-50 to-slate-200 rounded-r-2xl rounded-l-sm shadow-xl hover:-translate-y-2 active:scale-[0.98] transition-all duration-300 cursor-pointer border-l-[12px] border-emerald-700 flex flex-col items-center justify-center p-5 group">
+                 <div className="absolute inset-y-0 left-2 w-px bg-white/60 shadow-sm" />
+                 <div className="vertical-rl font-serif font-bold text-xl text-slate-800 tracking-widest leading-loose drop-shadow-sm group-hover:text-emerald-900 transition-colors pt-2">{d.title || <Rb t="無題" r="むだい"/>}</div>
+                 <div className="absolute bottom-5 left-0 w-full text-center text-sm font-serif text-slate-600 tracking-wider bg-white/40 py-1 backdrop-blur-sm">{d.name}</div>
+                 {getSafeArray(d.comments).length > 0 && <div className="absolute -top-3 -right-3 bg-rose-500 text-white text-xs font-bold w-7 h-7 flex items-center justify-center rounded-full shadow-md animate-pulse">{getSafeArray(d.comments).length}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// --- カスタムコンファームモーダルと楽観的UI更新を備えたTeacherView ---
+const TeacherView = ({ db, settings, updateStatusOptimistic, updateDraftInDB, onRefresh, selectedId, setSelectedId, previewMode, setPreviewMode, setGlobalPrintDrafts, showLoading, hideLoading, showToast }) => {
+  const [checkedIds, setCheckedIds] = useState(new Set());
+  // モバイルでは一覧と詳細を切り替えて全画面で使う
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  const drafts = db.filter(d => d.status !== 'draft');
+  
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterStatus, setFilterStatus] = useState('active');
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
+
+  const filteredDrafts = useMemo(() => {
+    return drafts.filter(d => {
+      if (filterStatus === 'active' && d.status === 'completed') return false;
+      if (filterStatus !== 'all' && filterStatus !== 'active' && d.status !== filterStatus) return false;
+      if (filterStartDate || filterEndDate) {
+        const itemDate = d.updatedAt.split(' ')[0];
+        if (filterStartDate && itemDate < filterStartDate.replace(/-/g, '/')) return false;
+        if (filterEndDate && itemDate > filterEndDate.replace(/-/g, '/')) return false;
+      }
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        return (d.title && d.title.toLowerCase().includes(q)) || (d.name && d.name.toLowerCase().includes(q)) || (d.content && d.content.toLowerCase().includes(q));
+      }
+      return true;
+    });
+  }, [drafts, filterStatus, filterStartDate, filterEndDate, searchQuery]);
+
+  useEffect(() => {
+    if (filteredDrafts.length > 0) { if (!selectedId || !filteredDrafts.find(d => d.id === selectedId)) setSelectedId(filteredDrafts[0].id); } 
+    else if (selectedId) { setSelectedId(null); }
+  }, [filteredDrafts, selectedId, setSelectedId]);
+
+  const selectedDraft = db.find(d => d.id === selectedId);
+
+  const [dragState, setDragState] = useState({ isDragging: false, start: null, end: null });
+  const [correctionModal, setCorrectionModal] = useState({ isOpen: false, text: '' });
+  const [deleteConfirmInfo, setDeleteConfirmInfo] = useState(null);
+  const [isShortcutModalOpen, setIsShortcutModalOpen] = useState(false);
+  
+  // システムアラート代わりのカスタムモーダル状態
+  const [confirmAction, setConfirmAction] = useState(null);
+
+  useEffect(() => {
+    if (selectedId) {
+        const d = drafts.find(x => x.id === selectedId);
+        if (d) {
+            const pc = parseCorrectionData(d.correction, d.content);
+            setPreviewMode(pc.baseText && pc.baseText !== d.content ? 'diff' : 'genko');
+        }
+    }
+  }, [selectedId]);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable || confirmAction) return;
+      if (e.key === '?') { setIsShortcutModalOpen(prev => !prev); return; }
+      if (e.key === 'Escape') { setIsShortcutModalOpen(false); setCorrectionModal({ isOpen: false, text: '' }); setDeleteConfirmInfo(null); setDragState({ isDragging: false, start: null, end: null }); setConfirmAction(null); return; }
+
+      const key = e.key.toLowerCase();
+      if (key === 's' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); toggleAll(); return; }
+      if (key === 'u' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); onRefresh(); return; }
+      if (key === 'p' && e.shiftKey) { e.preventDefault(); handleBulkPrint(); return; }
+      if (key === 'a' && e.shiftKey) { e.preventDefault(); confirmBulkAi(); return; }
+
+      if (!selectedDraft) return;
+      const currentIndex = filteredDrafts.findIndex(d => d.id === selectedDraft.id);
+      switch(key) {
+        case 'arrowup': e.preventDefault(); if (currentIndex > 0) setSelectedId(filteredDrafts[currentIndex - 1].id); break;
+        case 'arrowdown': e.preventDefault(); if (currentIndex < filteredDrafts.length - 1) setSelectedId(filteredDrafts[currentIndex + 1].id); break;
+        case 'c': e.preventDefault(); updateStatusOptimistic(selectedDraft.id, 'completed'); break;
+        case 'r': e.preventDefault(); updateStatusOptimistic(selectedDraft.id, 'rework'); break;
+        case 'v': e.preventDefault(); setPreviewMode(prev => prev === 'genko' ? 'book' : prev === 'book' ? 'diff' : 'genko'); break;
+        case 'a': if (!e.shiftKey) { e.preventDefault(); handleAiCorrection(); } break;
+        case 'p': if (!e.shiftKey) { e.preventDefault(); setGlobalPrintDrafts([selectedDraft]); setTimeout(()=>window.print(), 500); } break;
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedDraft, filteredDrafts, checkedIds, previewMode, confirmAction]);
+
+  const toggleCheck = (e, id) => { e.stopPropagation(); const newSet = new Set(checkedIds); if (newSet.has(id)) newSet.delete(id); else newSet.add(id); setCheckedIds(newSet); };
+  const visibleIds = filteredDrafts.map(d => d.id);
+  const allVisibleChecked = visibleIds.length > 0 && visibleIds.every(id => checkedIds.has(id));
+  const toggleAll = () => { const newSet = new Set(checkedIds); if (allVisibleChecked) visibleIds.forEach(id => newSet.delete(id)); else visibleIds.forEach(id => newSet.add(id)); setCheckedIds(newSet); };
+
+  const handleMouseDown = useCallback((idx, e) => { setDragState({ isDragging: true, start: idx, end: idx }); }, []);
+  const handleMouseEnter = useCallback((idx) => { setDragState(prev => prev.isDragging ? ({ ...prev, end: idx }) : prev); }, []);
+  const handleMouseUp = useCallback(() => { setDragState(prev => { if(prev.isDragging){ setCorrectionModal({ isOpen: true, text: '' }); return { ...prev, isDragging: false }; } return prev; }); }, []);
+
+  const handleSaveCorrection = async () => {
+      if (!selectedDraft || !correctionModal.text) return;
+      showLoading('添削を保存中...');
+      const displayStart = Math.min(dragState.start, dragState.end);
+      const displayEnd = Math.max(dragState.start, dragState.end) + 1;
+      const currentContent = selectedDraft.content || '';
+      let parsedCorrections = parseCorrectionData(selectedDraft.correction, currentContent);
+      const currentItems = getAdjustedCorrections(parsedCorrections.baseText, currentContent, parsedCorrections.items);
+      const originalText = currentContent.substring(displayStart, displayEnd);
+      currentItems.push({ id: crypto.randomUUID(), start: displayStart, end: displayEnd, comment: correctionModal.text, originalText: originalText, status: 'active' });
+      const updatedDraft = { ...selectedDraft, correction: JSON.stringify({ baseText: currentContent, items: currentItems }) };
+      
+      updateDraftInDB(updatedDraft); // 楽観的UI
+      setCorrectionModal({ isOpen: false, text: '' });
+      setDragState({ isDragging: false, start: null, end: null });
+      try {
+          await runGAS('saveOrSubmitDraft', updatedDraft, false);
+          showToast('添削を保存しました', 'success');
+      } catch(e) { showToast('通信エラー: 保存に失敗しました', 'error'); } finally { hideLoading(); }
+  };
+
+  const handleCorrectionClick = useCallback((cor) => { if (cor && selectedDraft) setDeleteConfirmInfo(cor); }, [selectedDraft]);
+
+  const executeDeleteCorrection = () => {
+      if (!deleteConfirmInfo) return;
+      const currentContent = selectedDraft.content || '';
+      let parsedCorrections = parseCorrectionData(selectedDraft.correction, currentContent);
+      let currentItems = getAdjustedCorrections(parsedCorrections.baseText, currentContent, parsedCorrections.items);
+      const newItems = currentItems.filter(c => c.id !== deleteConfirmInfo.id);
+      const updatedDraft = { ...selectedDraft, correction: JSON.stringify({ baseText: currentContent, items: newItems }) };
+      
+      updateDraftInDB(updatedDraft); // 楽観的UI
+      setDeleteConfirmInfo(null);
+      runGAS('saveOrSubmitDraft', updatedDraft, false).then(() => { showToast('添削を削除しました', 'success'); }).catch(() => { showToast('削除の通信に失敗しました', 'error'); });
+  };
+
+  const handleAiCorrection = async () => {
+      if (!selectedDraft) return;
+      showLoading(<><Rb t="AI" r="エーアイ"/>が添削中...</>);
+      try {
+          const resultItems = await runGAS('analyzeEssayWithGemini', selectedDraft.title, selectedDraft.class, selectedDraft.content);
+          if (!resultItems || resultItems.length === 0) { showToast('修正提案はありませんでした', 'success'); return; }
+          const currentContent = selectedDraft.content || '';
+          let parsedCorrections = parseCorrectionData(selectedDraft.correction, currentContent);
+          let currentItems = getAdjustedCorrections(parsedCorrections.baseText, currentContent, parsedCorrections.items);
+          let addedCount = 0;
+          getSafeArray(resultItems).forEach(aiItem => {
+              const idx = currentContent.indexOf(aiItem.quote);
+              if (idx !== -1) { currentItems.push({ id: crypto.randomUUID(), start: idx, end: idx + aiItem.quote.length, comment: '【AI】' + aiItem.comment, originalText: aiItem.quote, status: 'active' }); addedCount++; }
+          });
+          const updatedDraft = { ...selectedDraft, correction: JSON.stringify({ baseText: currentContent, items: currentItems }) };
+          updateDraftInDB(updatedDraft);
+          await runGAS('saveOrSubmitDraft', updatedDraft, false);
+          showToast(`${addedCount}件のAI提案を追加しました`, 'success');
+      } catch(e) { showToast(e.message, 'error'); } finally { hideLoading(); }
+  };
+
+  const confirmBulkAi = () => {
+      if (checkedIds.size === 0) return showToast('一括添削する作品にチェックを入れてください', 'error');
+      setConfirmAction({
+         title: '一括AI添削の実行',
+         message: `選択した ${checkedIds.size} 件の作品すべてを、AIに添削させますか？\n（処理には数分かかる場合があります）`,
+         btnText: '一括添削を開始',
+         btnColor: 'bg-amber-500 hover:bg-amber-600',
+         onConfirm: handleBulkAiCorrection
+      });
+  };
+
+  const handleBulkAiCorrection = async () => {
+      showLoading(`一括AI添削中... (0/${checkedIds.size})`);
+      let successCount = 0; let total = checkedIds.size; let i = 0;
+      for (let id of checkedIds) {
+          i++; const d = drafts.find(x => x.id === id);
+          if (d) {
+              showLoading(`一括AI添削中... (${i}/${total})\n${d.name}`);
+              try {
+                  const resultItems = await runGAS('analyzeEssayWithGemini', d.title, d.class, d.content);
+                  if (resultItems && resultItems.length > 0) {
+                      const currentContent = d.content || '';
+                      let parsedCorrections = parseCorrectionData(d.correction, currentContent);
+                      let currentItems = getAdjustedCorrections(parsedCorrections.baseText, currentContent, parsedCorrections.items);
+                      getSafeArray(resultItems).forEach(aiItem => {
+                          const idx = currentContent.indexOf(aiItem.quote);
+                          if (idx !== -1) { currentItems.push({ id: crypto.randomUUID(), start: idx, end: idx + aiItem.quote.length, comment: '【AI】' + aiItem.comment, originalText: aiItem.quote, status: 'active' }); }
+                      });
+                      const updatedDraft = { ...d, correction: JSON.stringify({ baseText: currentContent, items: currentItems }) };
+                      updateDraftInDB(updatedDraft);
+                      await runGAS('saveOrSubmitDraft', updatedDraft, false);
+                  }
+                  successCount++;
+              } catch(e){}
+          }
+      }
+      hideLoading(); showToast(`${successCount} 件のAI添削が完了しました`, 'success');
+  };
+
+  const confirmBulkComplete = () => {
+      if (checkedIds.size === 0) return;
+      setConfirmAction({
+         title: '一括ステータス変更',
+         message: `選択した ${checkedIds.size} 件の作品をすべて「完了」ステータスに変更しますか？`,
+         btnText: '完了にする',
+         btnColor: 'bg-emerald-500 hover:bg-emerald-600',
+         onConfirm: handleBulkComplete
+      });
+  };
+
+  const handleBulkComplete = async () => {
+      showLoading('一括更新中...');
+      let successCount = 0;
+      for (let id of checkedIds) {
+          const d = drafts.find(x => x.id === id);
+          if (d) {
+              const updatedDraft = { ...d, status: 'completed' };
+              updateDraftInDB(updatedDraft); // 楽観的
+              try {
+                  await runGAS('saveOrSubmitDraft', updatedDraft, true);
+                  successCount++;
+              } catch(e){}
+          }
+      }
+      setCheckedIds(new Set()); hideLoading(); showToast(`${successCount} 件を完了にしました`, 'success');
+  };
+
+  const handleBulkPrint = () => {
+      if (checkedIds.size === 0) return showToast('印刷する作品を選択してください', 'error');
+      const printTargets = drafts.filter(d => checkedIds.has(d.id));
+      setGlobalPrintDrafts(printTargets);
+      setTimeout(() => window.print(), 500);
+  };
+
+  const adjustedCorrections = useMemo(() => {
+      if (!selectedDraft) return [];
+      const parsed = parseCorrectionData(selectedDraft.correction, selectedDraft.content);
+      return getAdjustedCorrections(parsed.baseText, selectedDraft.content, parsed.items);
+  }, [selectedDraft?.correction, selectedDraft?.content]);
+
+  return (
+    <div className="flex-1 flex bg-slate-100 no-print min-h-0">
+      <div className={`${mobileDetailOpen ? 'hidden lg:flex' : 'flex'} w-full lg:w-[340px] border-r border-slate-200 bg-white flex-col h-full overflow-hidden shadow-sm z-10 shrink-0`}>
+        <div className="p-4 border-b border-slate-100 bg-rose-50/50 text-rose-800 font-bold flex flex-col gap-3 shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2"><i className="bi bi-person-gear text-[22px] text-rose-600"></i> 管理画面</div>
+            <div className="flex items-center gap-1">
+                <button onClick={() => setIsShortcutModalOpen(true)} className="p-1.5 hover:bg-rose-100 rounded-lg transition-all active:scale-90 text-rose-500" title="ショートカット"><i className="bi bi-question-circle text-[18px]"></i></button>
+                <button onClick={onRefresh} className="p-1.5 hover:bg-rose-100 rounded-lg transition-all active:scale-90 text-rose-600"><i className="bi bi-arrow-clockwise text-[18px]"></i></button>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-3 border-b border-slate-100 bg-slate-50 flex flex-col gap-2 shrink-0">
+          <div className="relative">
+            <i className="bi bi-search absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-sm"></i>
+            <input type="text" placeholder="キーワード (名前・題名・本文)" value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} className="w-full pl-8 pr-2 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-400 transition-all" />
+          </div>
+          <div className="flex flex-col gap-2">
+            <select value={filterStatus} onChange={(e)=>setFilterStatus(e.target.value)} className="w-full border border-slate-200 rounded-lg text-sm py-1.5 px-2 focus:outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-400 bg-white transition-all text-slate-600 cursor-pointer">
+              <option value="active">完了以外</option>
+              <option value="all">すべて表示</option>
+              <option value="submitted">提出済</option>
+              <option value="rework">再提出</option>
+              <option value="completed">完了</option>
+            </select>
+            <div className="flex gap-1 items-center">
+              <input type="date" value={filterStartDate} onChange={(e)=>setFilterStartDate(e.target.value)} className="flex-1 border border-slate-200 rounded-lg text-xs py-1.5 px-1 focus:outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-400 bg-white transition-all text-slate-600 text-center cursor-pointer" title="開始日" />
+              <span className="text-slate-500 text-xs">〜</span>
+              <input type="date" value={filterEndDate} onChange={(e)=>setFilterEndDate(e.target.value)} className="flex-1 border border-slate-200 rounded-lg text-xs py-1.5 px-1 focus:outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-400 bg-white transition-all text-slate-600 text-center cursor-pointer" title="終了日" />
+            </div>
+          </div>
+        </div>
+
+        <div className="p-2 border-b border-slate-100 bg-white flex items-center gap-2 text-sm shrink-0">
+           <button onClick={toggleAll} className="p-1 hover:bg-slate-100 rounded text-slate-500" title="表示中の作品をすべて選択"><i className={`bi ${allVisibleChecked ? 'bi-check-square-fill text-rose-500' : 'bi-square'}`}></i></button>
+           <span className="text-slate-600 font-medium">一括操作:</span>
+           <button onClick={confirmBulkAi} disabled={checkedIds.size===0} className="ml-auto p-1.5 text-amber-600 hover:bg-amber-50 rounded disabled:opacity-50 transition-colors" title="一括AI添削"><i className="bi bi-magic"></i></button>
+           <button onClick={confirmBulkComplete} disabled={checkedIds.size===0} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded disabled:opacity-50 transition-colors" title="完了にする"><i className="bi bi-check-circle-fill"></i></button>
+           <button onClick={handleBulkPrint} disabled={checkedIds.size===0} className="p-1.5 text-slate-600 hover:bg-slate-100 rounded disabled:opacity-50 transition-colors" title="印刷"><i className="bi bi-printer-fill"></i></button>
+        </div>
+
+        <div className="flex-1 overflow-auto hide-scrollbar">
+          {filteredDrafts.length === 0 && <div className="p-5 text-center text-slate-500 text-sm font-bold mt-4">該当する作品がありません</div>}
+          {filteredDrafts.map(d => (
+            <div key={d.id} onClick={() => { setSelectedId(d.id); setMobileDetailOpen(true); }} className={`p-4 border-b border-slate-100 cursor-pointer transition-all active:scale-[0.99] flex gap-3 ${selectedId === d.id ? 'bg-rose-50 border-l-4 border-l-rose-500 shadow-inner' : 'hover:bg-slate-50 border-l-4 border-l-transparent'}`}>
+               <div className="pt-0.5" onClick={e => toggleCheck(e, d.id)}>
+                  <i className={`bi text-[18px] ${checkedIds.has(d.id) ? 'bi-check-square-fill text-rose-500' : 'bi-square text-slate-500'}`}></i>
+               </div>
+               <div className="flex-1 min-w-0">
+                 <div className="flex justify-between items-center mb-1.5">
+                   <span className="font-bold text-slate-700 truncate">{d.name}</span>
+                   <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold text-white shadow-sm shrink-0 ${d.status === 'completed' ? 'bg-emerald-500' : d.status === 'rework' ? 'bg-amber-500' : 'bg-blue-500'}`}>
+                     {d.status === 'completed' ? '完了' : d.status === 'rework' ? '再提出' : '提出済'}
+                   </span>
+                 </div>
+                 <div className="flex justify-between items-center text-xs text-slate-500">
+                     <span className="truncate">{d.title}</span>
+                     {parseCorrectionData(d.correction, d.content).baseText && parseCorrectionData(d.correction, d.content).baseText !== d.content && (
+                        <i className="bi bi-file-diff text-blue-500" title="差分あり"></i>
+                     )}
+                 </div>
+               </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      
+      <div className={`${mobileDetailOpen ? 'flex' : 'hidden lg:flex'} flex-1 flex-col bg-slate-100/50 min-w-0`}>
+         {selectedDraft ? (
+           <>
+             <div className="lg:h-16 bg-white border-b border-slate-200 px-2 lg:px-6 py-2 lg:py-0 flex flex-wrap items-center justify-between gap-2 shadow-sm z-10 shrink-0">
+               <div className="flex items-center gap-1 min-w-0 max-w-full lg:max-w-[30%]">
+                 <button onClick={() => setMobileDetailOpen(false)} className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-all active:scale-90 shrink-0" title="一覧にもどる"><i className="bi bi-arrow-left text-[20px]"></i></button>
+                 <div className="font-bold text-slate-800 flex items-center gap-2 truncate"><span className="text-slate-500 font-normal">{selectedDraft.class}</span> {selectedDraft.name} <span className="text-slate-300">|</span> {selectedDraft.title}</div>
+               </div>
+
+               <div className="flex gap-1 bg-slate-100 p-1 rounded-xl shrink-0">
+                 <button onClick={() => setPreviewMode('genko')} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all active:scale-95 ${previewMode==='genko' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>原稿</button>
+                 <button onClick={() => setPreviewMode('book')} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all active:scale-95 ${previewMode==='book' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>本</button>
+                 <button onClick={() => setPreviewMode('diff')} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all active:scale-95 flex items-center gap-1 ${previewMode==='diff' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><i className="bi bi-file-diff"></i>差分</button>
+                 <div className="w-px h-5 bg-slate-300 mx-1 self-center" />
+                 <button onClick={() => { setGlobalPrintDrafts([selectedDraft]); setTimeout(()=>window.print(), 500); }} className="px-2 py-1.5 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-200 transition-all active:scale-95 flex items-center gap-1"><i className="bi bi-printer text-[15px]"></i>印刷</button>
+                 {previewMode === 'genko' && (
+                   <button onClick={handleAiCorrection} className="px-3 py-1.5 rounded-lg text-sm font-bold bg-amber-100 text-amber-700 hover:bg-amber-200 transition-all active:scale-95 flex items-center gap-1 ml-1"><i className="bi bi-magic"></i> AI添削</button>
+                 )}
+               </div>
+
+               <div className="flex gap-2 shrink-0">
+                 <button onClick={() => updateStatusOptimistic(selectedDraft.id, 'rework')} className="px-4 py-1.5 rounded-full text-sm font-bold border border-rose-500 text-rose-500 hover:bg-rose-50 hover:shadow-sm transition-all active:scale-95">再提出</button>
+                 <button onClick={() => updateStatusOptimistic(selectedDraft.id, 'completed')} className="px-4 py-1.5 rounded-full text-sm font-bold bg-emerald-500 text-white hover:bg-emerald-600 hover:shadow-md transition-all active:scale-95 flex items-center gap-1"><i className="bi bi-check-circle text-[16px]"></i> 完了</button>
+               </div>
+             </div>
+             
+             <div className="flex-1 relative min-h-0 bg-slate-100/50 rounded-b-2xl">
+                {previewMode === 'genko' && (
+                    <div className="absolute top-4 left-4 z-20 bg-white/90 backdrop-blur px-4 py-2 rounded-xl shadow-sm border border-slate-200 text-sm font-bold text-slate-500 flex items-center gap-2 pointer-events-none">
+                        <i className="bi bi-info-circle text-rose-500 text-[18px]"></i> 文字をドラッグして添削
+                    </div>
+                )}
+               <ScalableWrapper key={selectedDraft.id}>
+                 {previewMode === 'genko' ? <GenkoPaper draft={selectedDraft} settings={settings} corrections={adjustedCorrections} isTeacher={true} dragState={dragState} onCharMouseDown={handleMouseDown} onCharMouseEnter={handleMouseEnter} onPaperMouseUp={handleMouseUp} onClickCorrection={handleCorrectionClick} /> : previewMode === 'book' ? <BookPaper draft={selectedDraft} /> : <DiffViewer draft={selectedDraft} />}
+               </ScalableWrapper>
+             </div>
+           </>
+         ) : (
+           <div className="flex-1 flex items-center justify-center">
+             <div className="text-center">
+               <i className="bi bi-book text-[48px] mx-auto text-slate-300 mb-4"></i>
+               <div className="text-slate-500 font-bold text-lg">リストから作品を選択してください</div>
+             </div>
+           </div>
+         )}
+      </div>
+      
+      <Modal isOpen={correctionModal.isOpen} onClose={() => { setCorrectionModal({isOpen:false, text:''}); setDragState({isDragging:false, start:null, end:null}); }} title="添削コメントの追加" maxWidth="max-w-md">
+          <div className="space-y-4">
+              <textarea value={correctionModal.text} onChange={e => setCorrectionModal(prev => ({...prev, text: e.target.value}))} placeholder="修正指示やアドバイスを入力..." className="w-full h-32 p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-rose-400 focus:ring-2 focus:ring-rose-100 resize-none text-slate-800"></textarea>
+              <button onClick={handleSaveCorrection} className="w-full py-3 bg-rose-500 text-white font-bold rounded-xl hover:bg-rose-600 transition-all active:scale-95 shadow-sm">追加する</button>
+          </div>
+      </Modal>
+
+      <Modal isOpen={!!deleteConfirmInfo} onClose={() => setDeleteConfirmInfo(null)} title="削除の確認" maxWidth="max-w-md">
+          <div className="space-y-4">
+              <p className="text-slate-700 font-bold">以下の添削・コメントを削除しますか？</p>
+              <div className="p-4 bg-orange-50 border border-orange-200 rounded-xl text-slate-800 font-medium leading-relaxed">
+                  {deleteConfirmInfo?.comment.replace('【AI】', '')}
+              </div>
+              <div className="flex gap-3 pt-4">
+                  <button onClick={() => setDeleteConfirmInfo(null)} className="flex-1 py-3 bg-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-300 transition-all active:scale-95">キャンセル</button>
+                  <button onClick={executeDeleteCorrection} className="flex-1 py-3 bg-rose-500 text-white font-bold rounded-xl hover:bg-rose-600 transition-all active:scale-95 shadow-sm">削除する</button>
+              </div>
+          </div>
+      </Modal>
+
+      {/* システムアラートを置き換える独自デザインの確認モーダル */}
+      <Modal isOpen={!!confirmAction} onClose={() => setConfirmAction(null)} title={confirmAction?.title || "確認"} maxWidth="max-w-md">
+          <div className="space-y-4">
+              <p className="text-slate-700 font-bold leading-relaxed whitespace-pre-line">{confirmAction?.message}</p>
+              <div className="flex gap-3 pt-4 border-t border-slate-100">
+                  <button onClick={() => setConfirmAction(null)} className="flex-1 py-3 bg-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-300 transition-all active:scale-95">キャンセル</button>
+                  <button onClick={() => { confirmAction.onConfirm(); setConfirmAction(null); }} className={`flex-1 py-3 text-white font-bold rounded-xl transition-all active:scale-95 shadow-sm ${confirmAction?.btnColor || 'bg-emerald-500 hover:bg-emerald-600'}`}>{confirmAction?.btnText || "実行する"}</button>
+              </div>
+          </div>
+      </Modal>
+
+      <Modal isOpen={isShortcutModalOpen} onClose={() => setIsShortcutModalOpen(false)} title="キーボードショートカット" maxWidth="max-w-xl">
+         <div className="space-y-2">
+             <div className="flex justify-between items-center p-3 border-b border-slate-100"><span className="text-slate-600 font-bold">児童の切り替え</span><span className="bg-slate-100 px-2 py-1 rounded text-slate-600 font-mono text-sm border border-slate-200 shadow-sm">↑ / ↓</span></div>
+             <div className="flex justify-between items-center p-3 border-b border-slate-100"><span className="text-slate-600 font-bold">表示切り替え（原稿/本/差分）</span><span className="bg-slate-100 px-2 py-1 rounded text-slate-600 font-mono text-sm border border-slate-200 shadow-sm">V</span></div>
+             <div className="flex justify-between items-center p-3 border-b border-slate-100"><span className="text-slate-600 font-bold">一括選択 / 解除</span><span className="bg-slate-100 px-2 py-1 rounded text-slate-600 font-mono text-sm border border-slate-200 shadow-sm">S</span></div>
+             <div className="flex justify-between items-center p-3 border-b border-slate-100"><span className="text-slate-600 font-bold">データ更新</span><span className="bg-slate-100 px-2 py-1 rounded text-slate-600 font-mono text-sm border border-slate-200 shadow-sm">U</span></div>
+             <div className="flex justify-between items-center p-3 border-b border-slate-100"><span className="text-slate-600 font-bold">AI添削</span><span className="bg-slate-100 px-2 py-1 rounded text-slate-600 font-mono text-sm border border-slate-200 shadow-sm">A</span></div>
+             <div className="flex justify-between items-center p-3 border-b border-slate-100"><span className="text-slate-600 font-bold">一括AI添削</span><span className="bg-slate-100 px-2 py-1 rounded text-slate-600 font-mono text-sm border border-slate-200 shadow-sm">Shift + A</span></div>
+             <div className="flex justify-between items-center p-3 border-b border-slate-100"><span className="text-slate-600 font-bold">印刷（選択中の作品）</span><span className="bg-slate-100 px-2 py-1 rounded text-slate-600 font-mono text-sm border border-slate-200 shadow-sm">P</span></div>
+             <div className="flex justify-between items-center p-3 border-b border-slate-100"><span className="text-slate-600 font-bold">一括印刷</span><span className="bg-slate-100 px-2 py-1 rounded text-slate-600 font-mono text-sm border border-slate-200 shadow-sm">Shift + P</span></div>
+             <div className="flex justify-between items-center p-3 border-b border-slate-100"><span className="text-emerald-600 font-bold">完了にする</span><span className="bg-slate-100 px-2 py-1 rounded text-slate-600 font-mono text-sm border border-slate-200 shadow-sm">C</span></div>
+             <div className="flex justify-between items-center p-3 border-b border-slate-100"><span className="text-rose-600 font-bold">再提出にする</span><span className="bg-slate-100 px-2 py-1 rounded text-slate-600 font-mono text-sm border border-slate-200 shadow-sm">R</span></div>
+             <div className="flex justify-between items-center p-3"><span className="text-slate-600 font-bold">ショートカット一覧の表示</span><span className="bg-slate-100 px-2 py-1 rounded text-slate-600 font-mono text-sm border border-slate-200 shadow-sm">?</span></div>
+         </div>
+      </Modal>
+
+    </div>
+  );
+};
+
+const TeacherSettingsModal = ({ isOpen, onClose, showLoading, hideLoading, showToast }) => {
+    const [apiKey, setApiKey] = useState('');
+    const [qrReady, setQrReady] = useState(false);
+    const qrRef = useRef(null);
+    const studentEntryUrl = APP_CONTEXT.studentEntryUrl || '';
+
+    useEffect(() => {
+        setQrReady(false);
+        if (!isOpen || !studentEntryUrl || !qrRef.current) return;
+        qrRef.current.innerHTML = '';
+        if (typeof window.QRCode !== 'function') return;
+        new window.QRCode(qrRef.current, {
+            text: studentEntryUrl,
+            width: 196,
+            height: 196,
+            colorDark: '#0f172a',
+            colorLight: '#ffffff',
+            correctLevel: window.QRCode.CorrectLevel.M
+        });
+        setQrReady(true);
+    }, [isOpen, studentEntryUrl]);
+
+    const copyText = async (text, label) => {
+        if (!text) return;
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text);
+            } else {
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                if (!document.execCommand('copy')) throw new Error('copy failed');
+                textarea.remove();
+            }
+            showToast(label + 'をコピーしました。', 'success');
+        } catch (error) {
+            showToast('コピーできませんでした。文字を長押ししてコピーしてください。', 'error');
+        }
+    };
+
+    const copyInvitation = () => {
+        copyText(
+            'オンライン出版社 Pro に参加してください。\n' +
+            '学級コード：' + APP_CONTEXT.classCode + '\n' +
+            (studentEntryUrl ? '児童用URL：' + studentEntryUrl : ''),
+            '招待文'
+        );
+    };
+
+    const downloadQrCode = () => {
+        const canvas = qrRef.current && qrRef.current.querySelector('canvas');
+        if (!canvas) {
+            showToast('QRコードを保存できませんでした。画面のスクリーンショットをご利用ください。', 'error');
+            return;
+        }
+        const link = document.createElement('a');
+        link.download = 'オンライン出版社Pro_' + APP_CONTEXT.classCode + '_QR.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+    };
+
+    const handleSave = async () => {
+        showLoading('システム設定を保存中...');
+        try {
+            if (apiKey) {
+                const res = await runGAS('setGeminiApiKey', apiKey);
+                if (res && res.status === 'error') throw new Error(res.message);
+            }
+            showToast('設定を保存しました。', 'success');
+            setApiKey('');
+            onClose();
+        } catch(e) {
+            showToast(e.message || '保存エラー。GAS側の関数を確認してください。', 'error');
+        } finally {
+            hideLoading();
+        }
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={<><i className="bi bi-gear-fill text-rose-500 mr-2"></i>システム設定</>} maxWidth="max-w-2xl">
+            <div className="space-y-6">
+                <div className="bg-rose-50 p-4 rounded-xl border border-rose-100 mb-4">
+                    <p className="text-sm text-rose-800 font-bold">学級を作成したGoogleアカウントで先生本人を確認しています。</p>
+                </div>
+                <section aria-labelledby="student-invite-title" className="rounded-2xl border border-orange-200 bg-orange-50/60 p-4 sm:p-5 space-y-4">
+                    <div>
+                        <h4 id="student-invite-title" className="font-bold text-lg text-slate-800"><i className="bi bi-person-plus-fill text-orange-500 mr-2"></i>児童を招待</h4>
+                        <p className="mt-1 text-sm text-slate-600">QRコードを読み取るか、専用URLを開くと、学級コードの入力を省略できます。</p>
+                    </div>
+
+                    <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_220px]">
+                        <div className="space-y-4 min-w-0">
+                            <div className="rounded-xl border border-orange-200 bg-white p-4">
+                                <div className="text-xs font-bold text-slate-500">学級コード</div>
+                                <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
+                                    <div className="font-mono text-3xl font-bold tracking-[0.16em] text-slate-800">{APP_CONTEXT.classCode}</div>
+                                    <button type="button" onClick={() => copyText(APP_CONTEXT.classCode, '学級コード')} className="px-3 py-2 rounded-lg border border-orange-200 bg-orange-50 text-orange-700 text-sm font-bold hover:bg-orange-100">
+                                        <i className="bi bi-copy mr-1"></i>コピー
+                                    </button>
+                                </div>
+                            </div>
+
+                            {studentEntryUrl ? (
+                                <div className="space-y-2">
+                                    <label htmlFor="student-entry-url" className="block text-xs font-bold text-slate-500">児童用専用URL</label>
+                                    <div className="flex gap-2">
+                                        <input id="student-entry-url" type="text" readOnly value={studentEntryUrl} onFocus={e => e.target.select()} className="min-w-0 flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700" />
+                                        <button type="button" onClick={() => copyText(studentEntryUrl, '専用URL')} aria-label="児童用専用URLをコピー" className="shrink-0 px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 font-bold hover:bg-slate-50">
+                                            <i className="bi bi-copy"></i>
+                                        </button>
+                                    </div>
+                                    <a href={studentEntryUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm font-bold text-blue-700 hover:underline">
+                                        <i className="bi bi-box-arrow-up-right"></i> 児童用画面を確認
+                                    </a>
+                                </div>
+                            ) : (
+                                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">
+                                    専用URLとQRコードを作るには、GitHub Pagesの共通入口から先生として開き直してください。
+                                </div>
+                            )}
+
+                            <button type="button" onClick={copyInvitation} className="w-full px-4 py-3 rounded-xl bg-orange-500 text-white font-bold hover:bg-orange-600 transition-all active:scale-95 shadow-sm">
+                                <i className="bi bi-clipboard-check mr-2"></i>招待文をまとめてコピー
+                            </button>
+                        </div>
+
+                        <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                            <div ref={qrRef} role="img" aria-label="児童用専用URLのQRコード" className="min-h-[196px] min-w-[196px] flex items-center justify-center"></div>
+                            {!qrReady && studentEntryUrl && <p className="text-center text-xs font-bold text-rose-600">QRコードを読み込めませんでした。専用URLをご利用ください。</p>}
+                            <button type="button" onClick={downloadQrCode} disabled={!qrReady} className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 text-sm font-bold hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
+                                <i className="bi bi-download mr-1"></i>QRコードを保存
+                            </button>
+                        </div>
+                    </div>
+                    <p className="text-xs leading-relaxed text-slate-500">学級コード・専用URL・QRコードは、その学級の児童と保護者だけに共有してください。</p>
+                </section>
+
+                <a href={APP_CONTEXT.spreadsheetUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-bold text-blue-700 hover:underline">
+                    <i className="bi bi-table"></i> データベースを開く
+                </a>
+                <div>
+                    <h4 className="font-bold text-slate-700 mb-2">Gemini APIキーの設定</h4>
+                    <input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="AI添削用APIキー" className="w-full px-4 py-2 border border-slate-200 rounded-lg outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100" />
+                </div>
+                <div className="flex justify-end pt-4 border-t border-slate-100">
+                    <button onClick={handleSave} className="px-6 py-2 rounded-xl bg-slate-800 text-white font-bold hover:bg-slate-700 transition-all active:scale-95 shadow-sm">保存して閉じる</button>
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
+function App() {
+  const [mode, setMode] = useState(APP_CONTEXT.role === 'teacher' ? 'teacher' : 'student');
+  const [db, setDb] = useState([]);
+  
+  const [activeDraft, setActiveDraft] = useState(() => {
+    const saved = localStorage.getItem(AUTOSAVE_KEY);
+    if (saved) { try { return JSON.parse(saved); } catch(e) {} }
+    return { title: '', class: '', name: '', content: '', illustrations: [], status: 'draft', comments: [], correction: '' };
+  });
+  const [previewMode, setPreviewMode] = useState('genko');
+  const [teacherSelectedId, setTeacherSelectedId] = useState(null);
+  const [globalPrintDrafts, setGlobalPrintDrafts] = useState([]); 
+  
+  const [loading, setLoading] = useState({ isVisible: false, text: '' });
+  const [toast, setToast] = useState({ isVisible: false, message: '', type: 'success' });
+  const [isLoadModalOpen, setLoadModalOpen] = useState(false);
+  const [isSettingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [isTeacherSettingsModalOpen, setIsTeacherSettingsModalOpen] = useState(false);
+  const [galleryBookModal, setGalleryBookModal] = useState({ isOpen: false, draft: null });
+  const [isNewConfirmOpen, setIsNewConfirmOpen] = useState(false);
+
+  // オートセーブのステータス管理
+  const [saveStatus, setSaveStatus] = useState('saved');
+  const autoSaveTimerRef = useRef(null);
+  const lastSavedDraftRef = useRef(activeDraft);
+  const activeDraftRef = useRef(activeDraft);
+  const modeRef = useRef(mode);
+  // 「新規作成」「開く」で編集対象が切り替わったことを識別する世代カウンタ。
+  // 通信中のオートセーブ結果（採番されたID等）が別の作品へ誤って反映されるのを防ぐ。
+  const draftSessionRef = useRef(0);
+  const pendingSaveRef = useRef(null);
+
+  useEffect(() => { activeDraftRef.current = activeDraft; }, [activeDraft]);
+  useEffect(() => { modeRef.current = mode; }, [mode]);
+
+  const [settings, setSettings] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SETTINGS_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch(e) {}
+    return { charsPerLine: 20, linesPerPage: 20, kinsokuMode: 'oidashi' };
+  });
+
+  useEffect(() => { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
+  useEffect(() => { localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(activeDraft)); }, [activeDraft]);
+
+  // 印刷直前に印刷対象を同期する。
+  // （以前はキー入力のたびに印刷用DOMを再構築しており、低スペック端末で入力が重くなる原因だった）
+  useEffect(() => {
+    const handleBeforePrint = () => {
+      if (modeRef.current === 'student') {
+        ReactDOM.flushSync(() => setGlobalPrintDrafts([activeDraftRef.current]));
+      }
+    };
+    window.addEventListener('beforeprint', handleBeforePrint);
+    return () => window.removeEventListener('beforeprint', handleBeforePrint);
+  }, []);
+
+  const showToast = useCallback((message, type = 'success') => setToast({ isVisible: true, message, type }), []);
+  const showLoading = useCallback((text) => setLoading({ isVisible: true, text }), []);
+  const hideLoading = useCallback(() => setLoading({ isVisible: false, text: '' }), []);
+
+  // --- シームレスオートセーブ & オフライン堅牢性の実装 ---
+  const saveToLocalQueue = useCallback((draftToSave) => {
+      localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(draftToSave));
+  }, []);
+  const getLocalQueue = useCallback(() => {
+      try {
+        const data = localStorage.getItem(OFFLINE_QUEUE_KEY);
+        return data ? JSON.parse(data) : null;
+      } catch(e) { return null; }
+  }, []);
+  const clearLocalQueue = useCallback(() => {
+      localStorage.removeItem(OFFLINE_QUEUE_KEY);
+  }, []);
+
+  const performAutoSave = useCallback(async (draftToSave) => {
+      // 何も入力されていない新規状態の場合は保存しない
+      if (!draftToSave.title && !draftToSave.content && !draftToSave.name && getSafeArray(draftToSave.illustrations).length === 0) {
+          setSaveStatus('saved');
+          return;
+      }
+
+      // 完了・提出済みの場合はオートセーブをスキップ
+      if (draftToSave.status === 'completed' || draftToSave.status === 'submitted') {
+          setSaveStatus('saved');
+          return;
+      }
+
+      if (!navigator.onLine) {
+          setSaveStatus('offline');
+          saveToLocalQueue(draftToSave);
+          return;
+      }
+
+      const session = draftSessionRef.current;
+      setSaveStatus('saving');
+      const savePromise = (async () => {
+          try {
+              const res = await runGAS('saveOrSubmitDraft', draftToSave, false);
+              // 保存中に「新規作成」「開く」で別の作品に切り替わっていたら、結果を反映しない
+              if (session !== draftSessionRef.current) return;
+              if (res && res.status === 'success') {
+                  setSaveStatus('saved');
+                  lastSavedDraftRef.current = { ...draftToSave, id: res.id, status: res.docStatus };
+                  setActiveDraft(prev => (prev.id === draftToSave.id || !prev.id) ? { ...prev, id: res.id, status: res.docStatus } : prev);
+                  clearLocalQueue();
+              } else {
+                  setSaveStatus('error');
+                  saveToLocalQueue(draftToSave);
+              }
+          } catch(e) {
+              if (session !== draftSessionRef.current) return;
+              setSaveStatus('error');
+              saveToLocalQueue(draftToSave);
+          }
+      })();
+      pendingSaveRef.current = savePromise;
+      await savePromise;
+      if (pendingSaveRef.current === savePromise) pendingSaveRef.current = null;
+  }, [saveToLocalQueue, clearLocalQueue]);
+
+  useEffect(() => {
+      if (mode !== 'student') return;
+      if (JSON.stringify(activeDraft) === JSON.stringify(lastSavedDraftRef.current)) return;
+      
+      setSaveStatus('unsaved');
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      
+      autoSaveTimerRef.current = setTimeout(() => {
+          performAutoSave(activeDraft);
+      }, 20000); // 20秒入力が止まったら自動保存
+
+      return () => clearTimeout(autoSaveTimerRef.current);
+  }, [activeDraft, mode, performAutoSave]);
+
+  // オフラインから復帰時のキュー処理
+  useEffect(() => {
+      const handleOnline = () => {
+          const queue = getLocalQueue();
+          if (!queue) return;
+          const current = activeDraftRef.current;
+          const isSameDraft = (queue.id && current.id === queue.id) || JSON.stringify(current) === JSON.stringify(queue);
+          if (isSameDraft && modeRef.current === 'student') {
+              performAutoSave(current);
+          } else {
+              // すでに別の作品を編集中でも、キューに残った作品はバックグラウンドで救出保存する
+              runGAS('saveOrSubmitDraft', queue, false)
+                .then(res => { if (res && res.status === 'success') clearLocalQueue(); })
+                .catch(() => {});
+          }
+      };
+      window.addEventListener('online', handleOnline);
+      return () => window.removeEventListener('online', handleOnline);
+  }, [getLocalQueue, clearLocalQueue, performAutoSave]);
+
+  // タブが非表示になる（端末を閉じる・アプリを切り替える等）タイミングで未保存分を即時保存
+  //
+  // Chromebook（メモリ4GB）は、他のタブを開くとこのタブを黙って破棄することがある。
+  // 破棄の直前に必ず来るのは pagehide なので、visibilitychange だけでは取りこぼす。
+  // また、サーバー保存は非同期のため破棄に間に合わないことがある。そこで
+  // 「同期で確実に書けるローカル退避」を先に行い、そのうえでサーバー保存を試みる。
+  // 書きかけの本文そのものは AUTOSAVE_KEY から次回起動時に復元される。
+  // ここで退避したキューは、通信が復活したときに救出保存される。
+  useEffect(() => {
+      const flush = () => {
+          if (modeRef.current !== 'student') return;
+          const draftNow = activeDraftRef.current;
+          if (JSON.stringify(draftNow) === JSON.stringify(lastSavedDraftRef.current)) return;
+          if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+          try { saveToLocalQueue(draftNow); } catch (e) {}   // ← 同期。ここだけは必ず通す
+          performAutoSave(draftNow);
+      };
+      const handleVisibility = () => {
+          if (document.visibilityState !== 'hidden') return;
+          flush();
+      };
+      document.addEventListener('visibilitychange', handleVisibility);
+      window.addEventListener('pagehide', flush);
+      return () => {
+          document.removeEventListener('visibilitychange', handleVisibility);
+          window.removeEventListener('pagehide', flush);
+      };
+  }, [performAutoSave, saveToLocalQueue]);
+
+  // 子コンポーネントから明示的にオートセーブキューに入れる用
+  const autoSaveDraftToQueue = useCallback((updatedDraft) => {
+      setActiveDraft(updatedDraft);
+      // useEffectが発火して2秒後に保存されるが、即時保存したい場合は performAutoSave(updatedDraft) を直接呼ぶ
+  }, []);
+
+  // --- 教師からのステータス変更・添削の動的検知（ポーリング） ---
+  useEffect(() => {
+      // studentモードでない、IDがない、またはステータスが「提出済（submitted）」でない場合はポーリングしない
+      if (mode !== 'student' || !activeDraft.id || activeDraft.status !== 'submitted') return;
+
+      let timeoutId;
+      
+      const checkServerUpdates = async () => {
+          // ローカルで編集中やオフラインの時は上書きによる競合を防ぐためチェックしない
+          if (saveStatus === 'saved') {
+              try {
+                  // バックグラウンドで静かに取得
+                  const res = await runGAS('getDraftList', 'student');
+                  if (res.status === 'success') {
+                      const serverDraft = res.data.find(d => d.id === activeDraft.id);
+                      if (serverDraft) {
+                          let isUpdated = false;
+                          let msg = '';
+
+                          if (serverDraft.status !== activeDraft.status) {
+                              if (serverDraft.status === 'completed') msg = '先生が作品を「完了」にしました！\nよくがんばりました！';
+                              else if (serverDraft.status === 'rework') msg = '先生から「再提出」で返却されました。\nコメントを確認して直してみましょう。';
+                              else if (serverDraft.status === 'submitted') msg = '作品が「提出済」になりました。';
+                              isUpdated = true;
+                          } else if (
+                              // correction はサーバー側で配列/オブジェクト、ローカルではJSON文字列のことがあるため
+                              // 参照比較ではなく正規化して内容で比較する（以前は毎回「更新されました」と誤通知されていた）
+                              JSON.stringify(parseCorrectionData(serverDraft.correction, serverDraft.content)) !== JSON.stringify(parseCorrectionData(activeDraft.correction, activeDraft.content)) ||
+                              (serverDraft.teacherCmt || '') !== (activeDraft.teacherCmt || '')
+                          ) {
+                              msg = '先生が添削・コメントを更新しました。\n確認してみましょう。';
+                              isUpdated = true;
+                          }
+
+                          if (isUpdated) {
+                              if (msg) showToast(msg, 'success');
+                              setActiveDraft(serverDraft);
+                              lastSavedDraftRef.current = serverDraft;
+                          }
+                      }
+                  }
+              } catch (e) {
+                  // バックグラウンドのエラーは握りつぶす
+              }
+          }
+          
+          // 1分おき（60秒）にポーリング
+          timeoutId = setTimeout(checkServerUpdates, 60000);
+      };
+
+      timeoutId = setTimeout(checkServerUpdates, 60000);
+
+      return () => clearTimeout(timeoutId);
+  }, [mode, activeDraft.id, activeDraft.status, activeDraft.correction, activeDraft.teacherCmt, saveStatus, showToast]);
+
+
+  // 提出処理（明示的に保存完了まで待機させる）
+  const handleSubmitDraft = async () => {
+      showLoading(<><Rb t="提出中" r="ていしゅつちゅう"/>...</>);
+      try {
+        // 進行中のオートセーブと競合して同じ作品が二重登録されないよう、先に完了を待つ
+        const session = draftSessionRef.current;
+        if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+        if (pendingSaveRef.current) { try { await pendingSaveRef.current; } catch(e) {} }
+        const draftNow = { ...activeDraftRef.current };
+        if (session === draftSessionRef.current && !draftNow.id && lastSavedDraftRef.current && lastSavedDraftRef.current.id) {
+            draftNow.id = lastSavedDraftRef.current.id;
+        }
+        const res = await runGAS('saveOrSubmitDraft', draftNow, true);
+        if (res.status === 'success') {
+          const submittedDraft = { ...draftNow, id: res.id, status: res.docStatus };
+          setActiveDraft(submittedDraft);
+          lastSavedDraftRef.current = submittedDraft;
+          setSaveStatus('saved');
+          clearLocalQueue();
+          showToast(<><Rb t="先生" r="せんせい"/>に<Rb t="提出" r="ていしゅつ"/>しました！</>, 'success');
+        } else { showToast(res.message, 'error'); }
+      } catch (e) { showToast(<>サーバーと<Rb t="通信" r="つうしん"/>できませんでした</>, 'error'); } 
+      finally { hideLoading(); }
+  };
+
+  const handleSwitchMode = async (newMode) => {
+    if (newMode === 'gallery') {
+      showLoading(<>ギャラリーを<Rb t="取得中" r="しゅとくちゅう"/>...</>);
+      try {
+        const res = await runGAS('getDraftList', 'gallery');
+        if (res.status === 'success') { setDb(res.data); setMode(newMode); } 
+        else { showToast(res.message, 'error'); }
+      } catch (e) { showToast(<>データの<Rb t="取得" r="しゅとく"/>に<Rb t="失敗" r="しっぱい"/>しました</>, 'error'); } 
+      finally { hideLoading(); }
+    } else if (newMode === 'teacher') {
+      if (APP_CONTEXT.role === 'teacher') { handleRefreshTeacher(); setMode('teacher'); }
+      else { showToast('先生用画面は、この学級を作成した先生だけが利用できます。', 'error'); }
+    } else {
+      // 先生モードでしか使わない「差分」表示のまま児童モードに戻らないようにする
+      if (newMode === 'student' && previewMode === 'diff') setPreviewMode('genko');
+      setMode(newMode);
+    }
+  };
+
+  const openLoadModal = async () => {
+    showLoading(<><Rb t="保存" r="ほぞん"/>されたデータを<Rb t="探" r="さが"/>しています...</>);
+    try {
+      const res = await runGAS('getDraftList', 'student');
+      if (res.status === 'success') { setDb(res.data); setLoadModalOpen(true); } 
+      else { showToast(res.message, 'error'); }
+    } catch (e) { showToast('通信エラー', 'error'); } 
+    finally { hideLoading(); }
+  };
+
+  const handleAddComment = async (draftId, commentObj) => {
+    showLoading(<><Rb t="送信中" r="そうしんちゅう"/>...</>);
+    try {
+      const res = await runGAS('addGalleryComment', draftId, commentObj);
+      if (res.status === 'success') {
+        setDb(prev => prev.map(d => d.id === draftId ? { ...d, comments: [...getSafeArray(d.comments), res.data] } : d));
+        setGalleryBookModal(prev => ({ ...prev, draft: { ...prev.draft, comments: [...getSafeArray(prev.draft.comments), res.data] } }));
+        showToast(<><Rb t="感想" r="かんそう"/>を<Rb t="送信" r="そうしん"/>しました！</>);
+      } else { showToast(res.message, 'error'); }
+    } catch (e) { showToast('通信エラー', 'error'); } 
+    finally { hideLoading(); }
+  };
+
+  // --- 楽観的UI更新 ---
+  const updateDraftInDB = useCallback((updatedDraft) => {
+      setDb(prev => prev.map(d => d.id === updatedDraft.id ? updatedDraft : d));
+  }, []);
+
+  const updateTeacherStatusOptimistic = async (id, newStatus) => {
+    const targetDraft = db.find(d => d.id === id); if (!targetDraft) return;
+    const oldStatus = targetDraft.status;
+    
+    // ローディングを出さずに即座にUIを更新（楽観的UI）
+    const optimisticDraft = { ...targetDraft, status: newStatus };
+    updateDraftInDB(optimisticDraft);
+    showToast(`「${newStatus === 'completed' ? '完了' : '再提出'}」にしました`);
+
+    try {
+      const res = await runGAS('saveOrSubmitDraft', optimisticDraft, newStatus === 'completed' || newStatus === 'submitted');
+      if (res.status !== 'success') { throw new Error(res.message); }
+    } catch (e) {
+      // エラーが発生した場合は元の状態にロールバック
+      updateDraftInDB({ ...targetDraft, status: oldStatus });
+      showToast('通信エラー: ステータスを元に戻しました', 'error');
+    }
+  };
+
+  const handleRefreshTeacher = async () => {
+    showLoading('更新中...');
+    try {
+      const res = await runGAS('getDraftList', 'teacher');
+      if (res.status === 'success') { setDb(res.data); showToast('最新のリストを取得しました'); } 
+      else { showToast(res.message, 'error'); }
+    } catch (e) { showToast('通信エラー', 'error'); } 
+    finally { hideLoading(); }
+  };
+
+  const handleNewDraft = () => {
+    if (activeDraft.content || activeDraft.title) { setIsNewConfirmOpen(true); } 
+    else { executeNewDraft(); }
+  };
+
+  const executeNewDraft = () => {
+    const newDraft = { title: '', class: '', name: '', content: '', illustrations: [], status: 'draft', comments: [], correction: '' };
+    draftSessionRef.current++;
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    setActiveDraft(newDraft);
+    lastSavedDraftRef.current = newDraft;
+    setSaveStatus('saved');
+    setIsNewConfirmOpen(false);
+  };
+
+  const handleSettingsClick = () => {
+      if (mode === 'teacher') setIsTeacherSettingsModalOpen(true);
+      else setSettingsModalOpen(true);
+  };
+
+  const initialTeacherLoadRef = useRef(false);
+  useEffect(() => {
+      if (APP_CONTEXT.role !== 'teacher' || initialTeacherLoadRef.current) return;
+      initialTeacherLoadRef.current = true;
+      handleRefreshTeacher();
+  }, []);
+
+  return (
+    <div className="app-shell flex flex-col bg-amber-50/40 text-slate-800 font-sans selection:bg-orange-200">
+      <style>{GLOBAL_STYLES}</style>
+      <LoadingOverlay isVisible={loading.isVisible} text={loading.text} />
+      <ToastMessage isVisible={toast.isVisible} message={toast.message} type={toast.type} onClose={() => setToast(prev => ({...prev, isVisible: false}))} />
+      <TeacherSettingsModal isOpen={isTeacherSettingsModalOpen} onClose={() => setIsTeacherSettingsModalOpen(false)} showLoading={showLoading} hideLoading={hideLoading} showToast={showToast} />
+
+      <nav className="flex-shrink-0 z-40 w-full bg-white border-b border-slate-200 shadow-sm transition-colors duration-300 no-print" style={{ borderBottomColor: mode === 'teacher' ? '#f43f5e' : mode === 'gallery' ? '#10b981' : '#f97316', borderBottomWidth: '3px' }}>
+        <div className="px-3 sm:px-6 py-2 sm:py-2.5 flex items-center justify-between w-full gap-2">
+          <button onClick={() => handleSwitchMode('student')} aria-label="じぶんの作品を書く画面にもどる" className="flex items-center gap-2 sm:gap-3 hover:opacity-80 transition-all active:scale-95 min-w-0">
+            <div className={`p-1.5 sm:p-2 rounded-xl text-white shadow-sm transition-colors shrink-0 ${mode === 'teacher' ? 'bg-rose-500' : mode === 'gallery' ? 'bg-emerald-500' : 'bg-orange-500'}`}>
+              <i className="bi bi-book text-[20px] sm:text-[24px]" aria-hidden="true"></i>
+            </div>
+            <div className="flex items-baseline gap-2 min-w-0">
+              <span className={`font-bold text-lg sm:text-xl tracking-wide pt-2 truncate ${mode === 'teacher' ? 'text-rose-600' : mode === 'gallery' ? 'text-emerald-600' : 'text-orange-600'}`}>
+                オンライン<Rb t="出版社" r="しゅっぱんしゃ"/>
+              </span>
+              <span className={`hidden md:inline px-2 py-0.5 rounded-full text-xs font-bold text-white shadow-sm ${mode === 'teacher' ? 'bg-rose-500' : mode === 'gallery' ? 'bg-emerald-500' : 'bg-orange-500'}`}>Pro</span>
+            </div>
+          </button>
+          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+            {/* 小さい画面では文字ラベルが隠れてアイコンだけになるため、
+                読み上げソフト用の名前（aria-label）を必ず持たせる */}
+            <button onClick={handleSettingsClick} className="p-2 pt-3 text-slate-500 hover:bg-slate-100 rounded-full transition-all active:scale-95" title="設定" aria-label="設定">
+              <i className="bi bi-gear text-[22px]" aria-hidden="true"></i>
+            </button>
+            <button onClick={() => handleSwitchMode('gallery')} title="みんなの作品" aria-label="みんなの作品" aria-current={mode === 'gallery' ? 'page' : undefined} className={`px-3 sm:px-4 pt-3 pb-2 rounded-full text-sm font-bold flex items-center gap-2 border transition-all active:scale-95 ${mode === 'gallery' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' : 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-emerald-200 hover:text-emerald-600'}`}>
+              <i className="bi bi-people text-[18px] -mt-1" aria-hidden="true"></i> <span className="hidden sm:inline">みんなの<Rb t="作品" r="さくひん"/></span>
+            </button>
+            {APP_CONTEXT.role === 'teacher' && <button onClick={() => handleSwitchMode('teacher')} title="先生用" aria-label="先生用" aria-current={mode === 'teacher' ? 'page' : undefined} className={`px-3 sm:px-4 pt-3 pb-2 rounded-full text-sm font-bold flex items-center gap-2 border transition-all active:scale-95 ${mode === 'teacher' ? 'bg-rose-50 border-rose-200 text-rose-700 shadow-sm' : 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-rose-200 hover:text-rose-600'}`}>
+              <i className="bi bi-person-gear text-[18px] -mt-1" aria-hidden="true"></i> <span className="hidden sm:inline"><Rb t="先生用" r="せんせいよう"/></span>
+            </button>}
+          </div>
+        </div>
+      </nav>
+
+      <main className="flex-1 overflow-hidden flex flex-col no-print relative">
+        {mode === 'student' && <StudentView draft={activeDraft} settings={settings} updateDraft={(updates) => setActiveDraft(prev => ({...prev, ...updates}))} onSubmitDraft={handleSubmitDraft} onNew={handleNewDraft} openLoadModal={openLoadModal} showToast={showToast} showLoading={showLoading} hideLoading={hideLoading} previewMode={previewMode} setPreviewMode={setPreviewMode} saveStatus={saveStatus} autoSaveDraftToQueue={autoSaveDraftToQueue} />}
+        {mode === 'gallery' && <GalleryView db={db} onOpenBook={(draft) => setGalleryBookModal({ isOpen: true, draft })} />}
+        {mode === 'teacher' && <TeacherView db={db} settings={settings} updateStatusOptimistic={updateTeacherStatusOptimistic} updateDraftInDB={updateDraftInDB} onRefresh={handleRefreshTeacher} selectedId={teacherSelectedId} setSelectedId={setTeacherSelectedId} previewMode={previewMode} setPreviewMode={setPreviewMode} setGlobalPrintDrafts={setGlobalPrintDrafts} showLoading={showLoading} hideLoading={hideLoading} showToast={showToast} />}
+      </main>
+
+      <footer className="hidden sm:block flex-shrink-0 w-full bg-white border-t border-slate-200 pt-3 pb-2 text-center text-sm text-slate-500 font-bold no-print z-40 shadow-sm relative">
+        ©2026 オンライン出版社 <a href="https://giga-school.com" target="_blank" rel="noopener noreferrer" className="text-inherit no-underline hover:opacity-80 transition-opacity">GIGA山</a>
+        {' '}
+        <a href="https://giga-school.com/apps/online-publisher-pro/" target="_blank" rel="noopener noreferrer" className="text-inherit no-underline hover:opacity-80 transition-opacity">使い方を読む</a>
+      </footer>
+
+      <div className="print-only">
+         {globalPrintDrafts.map(d => (
+             <div key={d.id}>
+                {previewMode === 'genko' ? <PrintGenkoView draft={d} settings={settings} /> : <PrintBookView draft={d} />}
+             </div>
+         ))}
+      </div>
+
+      <Modal isOpen={isNewConfirmOpen} onClose={() => setIsNewConfirmOpen(false)} title={<><Rb t="新規作成" r="しんきさくせい"/>の<Rb t="確認" r="かくにん"/></>} maxWidth="max-w-md">
+          <div className="space-y-4">
+              <p className="text-slate-700 font-bold leading-relaxed">
+                  げんざい<Rb t="書" r="か"/>いている<Rb t="内容" r="ないよう"/>はクリアされます。<br/>
+                  <span className="text-sm text-rose-500">（<Rb t="保存" r="ほぞん"/>していない<Rb t="場合" r="ばあい"/>は<Rb t="消" r="き"/>えてしまいます）</span><br/><br/>
+                  ほんとうに あたらしく<Rb t="書" r="か"/>きはじめますか？
+              </p>
+              <div className="flex gap-3 pt-4 border-t border-slate-100">
+                  <button onClick={() => setIsNewConfirmOpen(false)} className="flex-1 py-3 bg-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-300 transition-all active:scale-95">キャンセル</button>
+                  <button onClick={executeNewDraft} className="flex-1 py-3 bg-orange-500 text-white font-bold rounded-xl hover:bg-orange-600 transition-all active:scale-95 shadow-sm">あたらしく<Rb t="書" r="か"/>く</button>
+              </div>
+          </div>
+      </Modal>
+
+      <Modal isOpen={isLoadModalOpen} onClose={() => setLoadModalOpen(false)} title={<><Rb t="保存" r="ほぞん"/>した<Rb t="作品" r="さくひん"/>を<Rb t="開" r="ひら"/>く</>} maxWidth="max-w-xl">
+         {db.length === 0 ? <div className="text-center text-slate-500 py-10 pt-12 font-bold"><Rb t="保存" r="ほぞん"/>されたデータがありません</div> : (
+           <div className="space-y-2">
+             {db.map(d => (
+               <div key={d.id} onClick={() => { draftSessionRef.current++; if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); setActiveDraft(d); lastSavedDraftRef.current = d; setSaveStatus('saved'); setLoadModalOpen(false); }} className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:border-orange-300 hover:shadow-md cursor-pointer transition-all active:scale-[0.98] group">
+                 <div className="min-w-0">
+                   <div className="font-bold text-slate-800 text-lg group-hover:text-orange-600 transition-colors pt-2 truncate">{d.title || <Rb t="無題" r="むだい"/>}</div>
+                   <div className="text-sm text-slate-500 mt-1 truncate">{d.class} {d.name}</div>
+                 </div>
+                 <div className="flex flex-col items-end gap-1 shrink-0 ml-4">
+                   <span className={`px-3 pt-2 pb-1 rounded-full text-xs font-bold text-white shadow-sm ${d.status==='submitted'?'bg-blue-500':d.status==='completed'?'bg-emerald-500':d.status==='rework'?'bg-amber-500':'bg-slate-400'}`}>
+                     {d.status==='submitted'?<Rb t="提出済" r="ていしゅつずみ"/>:d.status==='completed'?<Rb t="完了" r="かんりょう"/>:d.status==='rework'?<Rb t="再提出" r="さいていしゅつ"/>:<><Rb t="下書" r="したが"/>き</>}
+                   </span>
+                   <span className="text-xs text-slate-500 font-bold">{d.updatedAt}</span>
+                 </div>
+               </div>
+             ))}
+           </div>
+         )}
+      </Modal>
+
+      <Modal isOpen={isSettingsModalOpen} onClose={() => setSettingsModalOpen(false)} title={<><Rb t="設定" r="せってい"/></>} maxWidth="max-w-md">
+        <div className="space-y-6">
+          <div>
+            <h4 className="font-bold text-slate-700 mb-3 pt-2"><Rb t="用紙" r="ようし"/>の<Rb t="文字数" r="もじすう"/></h4>
+            <div className="space-y-3">
+              <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-orange-50/50 transition-colors active:scale-[0.98]">
+                <input type="radio" name="chars" checked={settings.charsPerLine === 20} onChange={() => setSettings({...settings, charsPerLine: 20, linesPerPage: 20})} className="w-4 h-4 text-orange-500 focus:ring-orange-500" />
+                <span className="font-bold text-slate-700 pt-2">20<Rb t="文字" r="もじ"/> × 20<Rb t="行" r="ぎょう"/> (<Rb t="高学年" r="こうがくねん"/>)</span>
+              </label>
+              <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-orange-50/50 transition-colors active:scale-[0.98]">
+                <input type="radio" name="chars" checked={settings.charsPerLine === 15} onChange={() => setSettings({...settings, charsPerLine: 15, linesPerPage: 16})} className="w-4 h-4 text-orange-500 focus:ring-orange-500" />
+                <span className="font-bold text-slate-700 pt-2">15<Rb t="文字" r="もじ"/> × 16<Rb t="行" r="ぎょう"/> (<Rb t="低学年" r="ていがくねん"/>)</span>
+              </label>
+            </div>
+          </div>
+          <div>
+            <h4 className="font-bold text-slate-700 mb-3 pt-2"><Rb t="禁則処理" r="きんそくしょり"/></h4>
+            <div className="space-y-3">
+              <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-orange-50/50 transition-colors active:scale-[0.98]">
+                <input type="radio" name="kinsoku" checked={settings.kinsokuMode === 'oidashi'} onChange={() => setSettings({...settings, kinsokuMode: 'oidashi'})} className="w-4 h-4 text-orange-500 focus:ring-orange-500" />
+                <span className="font-bold text-slate-700 pt-2"><Rb t="追" r="お"/>い<Rb t="出" r="だ"/>し（<Rb t="前行末" r="ぜんぎょうまつ"/>の<Rb t="文字" r="もじ"/>を<Rb t="次行" r="じぎょう"/>に<Rb t="送" r="おく"/>る）</span>
+              </label>
+              <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-orange-50/50 transition-colors active:scale-[0.98]">
+                <input type="radio" name="kinsoku" checked={settings.kinsokuMode === 'burasagari'} onChange={() => setSettings({...settings, kinsokuMode: 'burasagari'})} className="w-4 h-4 text-orange-500 focus:ring-orange-500" />
+                <span className="font-bold text-slate-700 pt-2">ぶら<Rb t="下" r="さ"/>がり（マス<Rb t="外" r="そと"/>に<Rb t="小" r="ちい"/>さく<Rb t="表示" r="ひょうじ"/>）</span>
+              </label>
+            </div>
+          </div>
+          <div className="flex justify-end pt-4 border-t border-slate-100">
+            <button onClick={() => setSettingsModalOpen(false)} className="px-6 pt-4 pb-2 rounded-xl bg-slate-800 text-white font-bold hover:bg-slate-700 transition-all active:scale-95 shadow-sm"><Rb t="保存" r="ほぞん"/>して<Rb t="閉" r="と"/>じる</button>
+          </div>
+        </div>
+      </Modal>
+
+      {galleryBookModal.isOpen && galleryBookModal.draft && (
+        <InteractiveBookViewer 
+           draft={galleryBookModal.draft} 
+           onClose={() => setGalleryBookModal({isOpen: false, draft: null})} 
+           handleAddComment={handleAddComment} 
+        />
+      )}
+
+    </div>
+  );
+}
+
+const AccessError = () => (
+  <main className="min-h-screen bg-orange-50 flex items-center justify-center p-6 font-sans">
+    <section className="w-full max-w-lg rounded-3xl border border-orange-200 bg-white p-8 text-center shadow-xl">
+      <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-rose-50 text-rose-600">
+        <i className="bi bi-shield-exclamation text-3xl"></i>
+      </div>
+      <h1 className="text-2xl font-bold text-slate-800">学級に接続できませんでした</h1>
+      <p className="mt-4 whitespace-pre-line leading-relaxed text-slate-600">{APP_CONTEXT.message}</p>
+      <p className="mt-5 text-sm font-bold text-slate-500">共通入口へ戻り、Googleアカウントと学級コードを確認してください。</p>
+    </section>
+  </main>
+);
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(APP_CONTEXT.status === 'success' ? <App /> : <AccessError />);
