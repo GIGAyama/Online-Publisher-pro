@@ -47,7 +47,12 @@ const sandbox = {
 
 vm.createContext(sandbox);
 const serverSource = fs.readFileSync(new URL('../code.gs', import.meta.url), 'utf8');
-const appSource = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+// 画面の中身は src/app.jsx（原本）にある。2026-08-28 まで index.html に
+// 直に書いてあったが、JSX の事前ビルドを入れたときに移した。
+// index.html を読んだままにすると、差し込みだけの 73 行を見ることになり、
+// 「文言が消えた」と誤って落ちる。
+const appSource = fs.readFileSync(new URL('../src/app.jsx', import.meta.url), 'utf8');
+const vendorSource = fs.readFileSync(new URL('../vendor.html', import.meta.url), 'utf8');
 const pwaSource = fs.readFileSync(new URL('../pwa/index.html', import.meta.url), 'utf8');
 vm.runInContext(serverSource, sandbox, { filename: 'code.gs' });
 
@@ -118,6 +123,11 @@ assert.equal(personalSharing.sharingMode, 'link');
 
 assert.match(pwaSource, /searchParams\.set\('entry', location\.origin \+ location\.pathname\)/);
 assert.match(appSource, /児童を招待/);
-assert.match(appSource, /qrcodejs\/1\.0\.0\/qrcode\.min\.js/);
+// QR は画面の中で作る（児童に配る URL を外部の QR 生成サービスへ送らない）。
+// 以前は「cdnjs の qrcodejs を読んでいること」を見ていたが、自己ホストにしたので
+// **取りこんだ実体が vendor に入っていること**を見る。
+// ⚠️ 「外から読んでいない」だけを見ると、読むのをやめただけで QR が出なくなっても通る。
+assert.match(vendorSource, /QRCode\.CorrectLevel/);
+assert.doesNotMatch(appSource, /cdnjs\.cloudflare\.com|unpkg\.com|cdn\.jsdelivr\.net/);
 
 console.log('multi-tenant security tests: ok');

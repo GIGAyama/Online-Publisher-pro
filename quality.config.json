@@ -17,10 +17,11 @@
   "displayChecks": {
     "requireViewportFitCover": ["index.html", "pwa/index.html", "pwa/offline.html"],
     "requireDvh": ["index.html", "pwa/index.html", "pwa/offline.html"],
-    "requireSafeArea": ["index.html", "pwa/index.html", "pwa/offline.html"],
-    "requireFluidType": ["index.html", "pwa/index.html", "pwa/offline.html"],
-    "requireReducedMotion": ["index.html", "pwa/index.html", "pwa/offline.html"],
-    "requirePrintCss": ["index.html"]
+    "//見る先": "2026-08-28 に index.html の中身を原本へ移した（JSX は src/app.jsx、その中の GLOBAL_STYLES が画面の CSS）。index.html は差し込みだけの 73 行になったので、CSS を見る検査はそちらを見ない。index.html のままにすると、CSS は配信物にちゃんと入っているのに全部不合格になる（逆に、書いてあるかどうかを何も見ないまま緑になる道もある）",
+    "requireSafeArea": ["src/app.jsx", "pwa/index.html", "pwa/offline.html"],
+    "requireFluidType": ["src/app.jsx", "pwa/index.html", "pwa/offline.html"],
+    "requireReducedMotion": ["src/app.jsx", "pwa/index.html", "pwa/offline.html"],
+    "requirePrintCss": ["src/app.jsx"]
   },
 
   "limits": {
@@ -40,13 +41,6 @@
       "id": "docs-note-images-oversize",
       "path": "docs/note/images/",
       "reason": "note 掲載用の紹介記事に貼る画面写真。アプリからは一切読み込まれず、児童の端末には配信されない。圧縮すると記事の可読性が落ちるため、原寸のまま保持する。アプリの初回転送量には含まれない。",
-      "approvedBy": "GIGAyama",
-      "approvedOn": "2026-08-08"
-    },
-    {
-      "id": "cdn-dependencies-index-html",
-      "path": "index.html",
-      "reason": "React / ReactDOM / Babel standalone / Tailwind CDN / diff_match_patch / QRCode.js を外部CDNから読み込んでいる。自己ホスト化と JSX の事前ビルドが必要で、変更行数が100行を大きく超えるため今回の改修では対象外とした。対処方針は AUDIT.md の「1. B1 / F3」に記載。この例外が残っている間、CSP は投入しない（検証できないCSPは投入しないという規約に従う）。",
       "approvedBy": "GIGAyama",
       "approvedOn": "2026-08-08"
     }

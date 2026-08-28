@@ -1,0 +1,16 @@
+{
+  "//": "書体の取りこみ方。作り直すには npm run build:fonts（ネットが要る）。本文は丸ゴシック、原稿は明朝。どちらも 1 ウェイトずつに絞る",
+  "families": [
+    { "family": "Zen Maru Gothic", "weights": [500] },
+    { "family": "Shippori Mincho", "weights": [400] }
+  ],
+  "grades": [1, 2],
+  "scan": ["src", "index.html", "tools/extra.css", "code.gs"],
+  "scanExt": [".jsx", ".html", ".css", ".gs"],
+  "embed": true,
+  "cssPath": "fonts.html",
+  "oflPath": "OFL.txt",
+  "generator": "tools/fonts/build-fonts.mjs",
+  "license": "Zen Maru Gothic / Shippori Mincho — SIL Open Font License 1.1（全文は OFL.txt）",
+  "copyright": "Copyright 2021 The Zen Maru Gothic Project Authors\nCopyright 2020 The Shippori Mincho Project Authors"
+}

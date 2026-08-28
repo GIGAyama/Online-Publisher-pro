@@ -646,8 +646,17 @@ function safeJson_(value) {
   return JSON.stringify(value).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 }
 
+/**
+ * index.html の <?!= include('x'); ?> が呼ぶ。x.html の中身をそのまま返す。
+ *
+ * ⚠️ getRawContent() を使うこと。createHtmlOutputFromFile(...).getContent() は
+ *    中身を **HTML として読み直して組み立て直す**。app.html の中身は <script> 1 個ぶんの
+ *    JavaScript で、その中には HTML の断片を組み立てる文字列がある。読み直されると
+ *    その断片が本物のタグとして扱われ、バッククォートの対応が崩れた JavaScript が
+ *    返ってくる（Reflection_Journal で 2026-08-24 に実際に起きている）。
+ */
 function include(filename) {
-  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+  return HtmlService.createTemplateFromFile(filename).getRawContent();
 }
 
 // --- 設定およびAI機能 ---

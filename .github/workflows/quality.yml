@@ -1,5 +1,8 @@
 # GIGA Standard v4 の品質ゲート。
-# 依存パッケージが無いので npm ci は不要。node だけで走る。
+#
+# ライブラリを自己ホストにしたので、npm ci が要る。
+# npm run check は tools/build.mjs（@babel/core を使う）を通るため、
+# 依存を入れずに走らせると ERR_MODULE_NOT_FOUND で落ちる。
 name: quality
 
 on:
@@ -18,6 +21,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: npm
+      - name: ライブラリを版どおりに入れる
+        run: npm ci
+
       - name: 品質ゲート
         run: npm run check
 
