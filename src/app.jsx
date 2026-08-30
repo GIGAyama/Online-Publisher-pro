@@ -2267,10 +2267,32 @@ function App() {
         {mode === 'teacher' && <TeacherView db={db} settings={settings} updateStatusOptimistic={updateTeacherStatusOptimistic} updateDraftInDB={updateDraftInDB} onRefresh={handleRefreshTeacher} selectedId={teacherSelectedId} setSelectedId={setTeacherSelectedId} previewMode={previewMode} setPreviewMode={setPreviewMode} setGlobalPrintDrafts={setGlobalPrintDrafts} showLoading={showLoading} hideLoading={hideLoading} showToast={showToast} />}
       </main>
 
-      <footer className="hidden sm:block flex-shrink-0 w-full bg-white border-t border-slate-200 pt-3 pb-2 text-center text-sm text-slate-500 font-bold no-print z-40 shadow-sm relative">
-        ©2026 オンライン出版社 <a href="https://giga-school.com" target="_blank" rel="noopener noreferrer" className="text-inherit no-underline hover:opacity-80 transition-opacity">GIGA山</a>
-        {' '}
-        <a href="https://giga-school.com/apps/online-publisher-pro/" target="_blank" rel="noopener noreferrer" className="text-inherit no-underline hover:opacity-80 transition-opacity">使い方を読む</a>
+      {/* ⚠️ hidden sm:block を外した。640px より狭い端末ではフッターごと
+          隠れていたので、利用規約とプライバシーへの行き先も、スマホでは
+          辿れないままになる。アプリの画面から辿れるようにした意味が、
+          いちばん多く使われる端末で無くなってしまう。
+
+          そのぶん場所を食わないよう、1 行ぶん（py-1）まで細くした。
+          flex-nowrap と min-w-0 の 2 つが要る。nowrap だけだと、
+          クレジットの文字列が縮まずに列を押し広げて横スクロールになる。
+          狭い画面ではクレジットが … で切れる。 */}
+      <footer className="flex-shrink-0 w-full flex flex-nowrap items-center justify-center gap-1 bg-white border-t border-slate-200 py-1 text-center text-xs sm:text-sm text-slate-500 font-bold no-print z-40 shadow-sm relative">
+        <span className="min-w-0 truncate">©2026 オンライン出版社 <a href="https://giga-school.com" target="_blank" rel="noopener noreferrer" className="text-inherit no-underline hover:opacity-80 transition-opacity">GIGA山</a></span>
+        {/* ⚠️ 行き先のリンクを手で書かないこと。中身は正本の部品
+            standards/web/giga-app-links.js（配布物 web/giga-app-links.js）が
+            この中に出す。GAS へは giga_links.html として焼き込んで送る
+            （tools/build-app-links.mjs と .claspignore）。
+
+            ⚠️ ここにあった「使い方を読む」（紹介記事へのリンク）は外した。
+               紹介記事は「なぜ作ったか」を、まだ使っていない先生に向けて
+               書いたもので、いま画面の前で困っている人が求めるものではない。
+               艦隊のほかのアプリでも既に外れている。
+
+            ⚠️ <div> にしないこと。そこで改行が入ってフッターが 2 行になる。
+
+            ⚠️ 出すものは giga_links.html 側（window.GIGA_APP_LINKS）で
+               "terms,privacy" に絞ってある。 */}
+        <span data-giga-links />
       </footer>
 
       <div className="print-only">

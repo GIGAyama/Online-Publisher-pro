@@ -3647,18 +3647,17 @@ function App() {
     hideLoading: hideLoading,
     showToast: showToast
   })), React.createElement("footer", {
-    className: "hidden sm:block flex-shrink-0 w-full bg-white border-t border-slate-200 pt-3 pb-2 text-center text-sm text-slate-500 font-bold no-print z-40 shadow-sm relative"
+    className: "flex-shrink-0 w-full flex flex-nowrap items-center justify-center gap-1 bg-white border-t border-slate-200 py-1 text-center text-xs sm:text-sm text-slate-500 font-bold no-print z-40 shadow-sm relative"
+  }, React.createElement("span", {
+    className: "min-w-0 truncate"
   }, "\xA92026 \u30AA\u30F3\u30E9\u30A4\u30F3\u51FA\u7248\u793E ", React.createElement("a", {
     href: "https://giga-school.com",
     target: "_blank",
     rel: "noopener noreferrer",
     className: "text-inherit no-underline hover:opacity-80 transition-opacity"
-  }, "GIGA\u5C71"), ' ', React.createElement("a", {
-    href: "https://giga-school.com/apps/online-publisher-pro/",
-    target: "_blank",
-    rel: "noopener noreferrer",
-    className: "text-inherit no-underline hover:opacity-80 transition-opacity"
-  }, "\u4F7F\u3044\u65B9\u3092\u8AAD\u3080")), React.createElement("div", {
+  }, "GIGA\u5C71")), React.createElement("span", {
+    "data-giga-links": true
+  })), React.createElement("div", {
     className: "print-only"
   }, globalPrintDrafts.map(d => React.createElement("div", {
     key: d.id
